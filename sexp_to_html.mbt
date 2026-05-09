@@ -77,6 +77,8 @@ fn parse_list_item(
   let (head, next) = parse_head(chars, index)
   if head == "%" {
     parse_comment(chars, next)
+  } else if head == "#" {
+    parse_raw_text(chars, next)
   } else if head == "~" {
     parse_space(chars, next)
   } else if head.has_prefix("~") {
@@ -96,6 +98,23 @@ fn parse_comment(
   let start = skip_whitespace(chars, after_head)
   match capture_comment_text(chars, start) {
     Ok((content, next)) => Ok((Node(Comment(content)), next))
+    Err(error) => Err(error)
+  }
+}
+
+///|
+fn parse_raw_text(
+  chars : Array[Char],
+  after_head : Int,
+) -> Result[(ParsedListItem, Int), String] {
+  let start = if after_head < chars.length() &&
+    chars[after_head].is_whitespace() {
+    after_head + 1
+  } else {
+    after_head
+  }
+  match capture_raw_text(chars, start) {
+    Ok((content, next)) => Ok((Node(Text(content)), next))
     Err(error) => Err(error)
   }
 }
@@ -291,6 +310,37 @@ fn capture_comment_text(
     index = index + 1
   }
   Err(error_at(start, "unterminated comment"))
+}
+
+///|
+fn capture_raw_text(
+  chars : Array[Char],
+  start : Int,
+) -> Result[(String, Int), String] {
+  let buffer : Array[Char] = []
+  let mut index = start
+  while index < chars.length() {
+    let ch = chars[index]
+    if ch == '\\' {
+      if index + 1 < chars.length() {
+        let escaped = chars[index + 1]
+        if escaped == '(' || escaped == ')' {
+          buffer.push(escaped)
+          index = index + 2
+          continue
+        }
+      }
+      buffer.push(ch)
+      index = index + 1
+      continue
+    }
+    if ch == ')' {
+      return Ok((String::from_array(buffer.view()), index + 1))
+    }
+    buffer.push(ch)
+    index = index + 1
+  }
+  Err(error_at(start, "unterminated (# ...) text node"))
 }
 
 ///|

@@ -107,30 +107,10 @@ fn render_html_node_list(
 
 ///|
 fn render_html_text_term(text : String) -> Result[String?, String] {
-  if text.is_blank() {
-    return render_space_text_term(text)
-  }
-  let space_prefix = count_leading_spaces(text)
-  if space_prefix == 0 {
-    if starts_with_whitespace(text) {
-      return Err(
-        "unsupported html fragment: non-space leading whitespace cannot be represented: " +
-        text,
-      )
-    }
+  if !text.is_empty() && !starts_with_whitespace(text) {
     return Ok(Some(escape_sexp_text(text)))
   }
-  let remainder = text.sub(start=space_prefix).to_owned()
-  if remainder.is_empty() {
-    return Ok(Some(render_space_forms(space_prefix)))
-  }
-  if starts_with_whitespace(remainder) {
-    return Err(
-      "unsupported html fragment: non-space leading whitespace cannot be represented: " +
-      text,
-    )
-  }
-  Ok(Some(render_space_forms(space_prefix) + " " + escape_sexp_text(remainder)))
+  Ok(Some(render_raw_text_form(text)))
 }
 
 ///|
@@ -205,36 +185,8 @@ fn starts_with_whitespace(text : String) -> Bool {
 }
 
 ///|
-fn count_leading_spaces(text : String) -> Int {
-  let chars = text.to_array()
-  let mut index = 0
-  while index < chars.length() && chars[index] == ' ' {
-    index = index + 1
-  }
-  index
-}
-
-///|
-fn render_space_text_term(text : String) -> Result[String?, String] {
-  let space_count = count_leading_spaces(text)
-  if space_count == text.length() {
-    return Ok(Some(render_space_forms(space_count)))
-  }
-  Err(
-    "unsupported html fragment: whitespace-only text nodes with non-space characters cannot be represented: " +
-    text,
-  )
-}
-
-///|
-fn render_space_forms(count : Int) -> String {
-  let parts : Array[String] = []
-  let mut index = 0
-  while index < count {
-    parts.push("(~)")
-    index = index + 1
-  }
-  parts.join(" ")
+fn render_raw_text_form(text : String) -> String {
+  "(# " + escape_sexp_text(text) + ")"
 }
 
 ///|

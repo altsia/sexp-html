@@ -53,6 +53,18 @@
   <p> <span>hello</span> world</p>
   ```
 
+- `(# ...)` emits an explicit raw text node and preserves the text after `#` exactly, including leading spaces and newlines
+
+  The first whitespace character after `#` is only a separator and is not part of the text payload.
+
+  ```sexp
+  (p (span hello) (#  world))
+  ```
+
+  ```html
+  <p><span>hello</span> world</p>
+  ```
+
 ## Specification
 
 see [SPEC.md](./SPEC.md). 

@@ -48,6 +48,7 @@ escaped-rparen  ::= "\)"
 List meaning depends on its first item:
 
 - `(% ...)` → comment
+- `(# ...)` → explicit raw text node
 - `(~)` → one literal space
 - `(~tag ...)` → element with one literal space on both sides
 - `(tag ...)` → element, where `tag` is a text term
@@ -96,7 +97,30 @@ Example:
 <!-- I want you to know since you came in my life -->
 ```
 
-### 3.3 Space Forms
+### 3.3 Raw Text
+
+```sexp
+(# ...)
+```
+
+- `(# ...)` serializes to a text node
+- the first whitespace character after `#`, if present, is only a separator and is not part of the text payload
+- its content starts after that separator and continues until the matching unescaped `)`
+- unlike ordinary text terms, this form preserves leading spaces, newlines, and other syntactic whitespace
+- inside this form, `\(` becomes `(` and `\)` becomes `)`
+
+Examples:
+
+```sexp
+(#)
+(# )
+(#  world)
+(# 
+world)
+(# \(hello\))
+```
+
+### 3.4 Space Forms
 
 ```sexp
 (~)
@@ -119,7 +143,9 @@ Example:
 
 This form exists because ordinary syntactic whitespace is ignored as a separator and therefore cannot represent all meaningful text-space positions by itself.
 
-### 3.4 Attribute
+`(~)` can be understood as a convenient shorthand for a one-space raw text node.
+
+### 3.5 Attribute
 
 ```sexp
 (:name value)
@@ -157,7 +183,8 @@ Consequences:
 - spaces are preserved inside text
 - newlines are preserved inside text
 - spaces between terms are only separators and do not create nodes
-- when a literal inter-node space is needed, use `(~)` or `(~tag ...)`
+- when syntactic whitespace itself must become text, use `(# ...)`
+- `(~)` and `(~tag ...)` are convenience forms for common spacing cases
 
 So in:
 
@@ -185,6 +212,8 @@ becomes:
 ```html
 (hello)
 ```
+
+Inside `(# ...)`, the same parenthesis escaping rules apply.
 
 ### 4.3 Attributes
 
@@ -319,6 +348,13 @@ For a spaced element `(~tag ...)`:
 For `(~)`:
 
 1. emit exactly one literal space character
+
+For `(# ...)`:
+
+1. take every character after `#` up to the matching unescaped `)`
+2. if the first character after `#` is whitespace, treat that one character as a separator and do not emit it
+3. resolve `\(` to `(` and `\)` to `)`
+4. emit the resulting text literally
 
 ### 5.4 Fragment model
 

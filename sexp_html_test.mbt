@@ -55,6 +55,13 @@ test "spaced element form adds spaces on both sides" {
 }
 
 ///|
+test "raw text form preserves leading whitespace and escaped parens" {
+  let input = "(p (# \\(Hello\\)))"
+  let expected = "<p>(Hello)</p>"
+  assert_eq(sexp_to_html(input), Ok(expected))
+}
+
+///|
 test "html fragment to sexp element" {
   let input = "<p>Hello</p>"
   assert_eq(html_to_sexp(input), Ok("(p Hello)"))
@@ -70,7 +77,7 @@ test "html fragment with nested content and attrs" {
 ///|
 test "leading spaces become explicit space forms" {
   let input = "<p><span>Hello</span> world</p>"
-  let expected = "(p (span Hello) (~) world)"
+  let expected = "(p (span Hello) (#  world))"
   assert_eq(html_to_sexp(input), Ok(expected))
 }
 
@@ -82,10 +89,8 @@ test "html full document is flattened back to fragment" {
 }
 
 ///|
-test "non-space leading whitespace is still rejected" {
-  match html_to_sexp("<p><span>Hello</span>\nworld</p>") {
-    Ok(_) => fail("expected an error")
-    Err(error) =>
-      assert_eq(error.contains("non-space leading whitespace"), true)
-  }
+test "leading newline becomes raw text form" {
+  let input = "<p><span>Hello</span>\nworld</p>"
+  let expected = "(p (span Hello) (# \nworld))"
+  assert_eq(html_to_sexp(input), Ok(expected))
 }
