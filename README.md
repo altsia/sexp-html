@@ -43,6 +43,16 @@
   </details>
   ```
 
+- `(~)` emits a literal space, and `(~tag ...)` emits the normal element with one space on each side
+
+  ```sexp
+  (p (~span hello)world)
+  ```
+
+  ```html
+  <p> <span>hello</span> world</p>
+  ```
+
 ## Specification
 
 see [SPEC.md](./SPEC.md). 

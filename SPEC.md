@@ -48,6 +48,8 @@ escaped-rparen  ::= "\)"
 List meaning depends on its first item:
 
 - `(% ...)` → comment
+- `(~)` → one literal space
+- `(~tag ...)` → element with one literal space on both sides
 - `(tag ...)` → element, where `tag` is a text term
 - anything else → invalid
 
@@ -94,7 +96,30 @@ Example:
 <!-- I want you to know since you came in my life -->
 ```
 
-### 3.3 Attribute
+### 3.3 Space Forms
+
+```sexp
+(~)
+(~tag item1 item2 ...)
+```
+
+- `(~)` serializes to exactly one space character
+- `(~tag ...)` serializes like `(tag ...)`, but with one literal space added before and after the element
+- `(~ ...)` with an empty tag name is only valid in the exact form `(~)`
+
+Example:
+
+```sexp
+(p (~span hello)world)
+```
+
+```html
+<p> <span>hello</span> world</p>
+```
+
+This form exists because ordinary syntactic whitespace is ignored as a separator and therefore cannot represent all meaningful text-space positions by itself.
+
+### 3.4 Attribute
 
 ```sexp
 (:name value)
@@ -132,6 +157,7 @@ Consequences:
 - spaces are preserved inside text
 - newlines are preserved inside text
 - spaces between terms are only separators and do not create nodes
+- when a literal inter-node space is needed, use `(~)` or `(~tag ...)`
 
 So in:
 
@@ -239,6 +265,14 @@ Invalid:
 (br hello)
 ```
 
+The spaced form still follows the same void-element rule.
+
+Valid:
+
+```sexp
+(~br)
+```
+
 
 ## 5. Serialization rules
 
@@ -275,6 +309,16 @@ For an element:
 3. resolve duplicate attributes by keeping the last one
 4. serialize all non-attribute items in order as children
 5. emit normal HTML, except for void elements
+
+For a spaced element `(~tag ...)`:
+
+1. serialize it exactly as `(tag ...)`
+2. prepend one literal space
+3. append one literal space
+
+For `(~)`:
+
+1. emit exactly one literal space character
 
 ### 5.4 Fragment model
 
