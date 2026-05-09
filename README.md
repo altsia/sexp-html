@@ -7,9 +7,7 @@
   ```sexp
   (% I want you to know since you came in my life)
   ```
-  
-  $$\Updownarrow$$
-  
+
   ```html
   <!-- I want you to know since you came in my life -->
   ```
@@ -21,8 +19,6 @@
     (span (:style font-family: "Alegreya Sans SC", sans-serif) 
             爱してる) )
   ```
-
-  $$\Updownarrow$$
 
   ```html
   <p>One hundred million and two thousand years from now 
@@ -38,8 +34,6 @@
     \(I've been waiting to share my love with you\) 
     you give light into the darkness skies )
   ```
-
-  $$\Updownarrow$$
 
   ```html
   <details open>
