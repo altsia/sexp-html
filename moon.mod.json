@@ -1,0 +1,10 @@
+{
+  "name": "kokic/sexp-html",
+  "version": "0.1.0",
+  "deps": {},
+  "repository": "https://github.com/kokic/sexp-html",
+  "license": "Apache-2.0",
+  "keywords": [],
+  "readme": "README.md",
+  "description": "HTML's s-expression representation"
+}
