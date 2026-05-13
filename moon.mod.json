@@ -1,6 +1,6 @@
 {
   "name": "kokic/sexp-html",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "deps": {
     "Milky2018/html": "0.1.2"
   },

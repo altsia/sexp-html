@@ -6,6 +6,16 @@ test "comment serialization" {
 }
 
 ///|
+test "comment syntax trims separator whitespace and requires balanced parens" {
+  @test.assert_eq(sexp_to_html("(%   hello)"), Ok("<!-- hello -->"))
+  @test.assert_eq(sexp_to_html("(% hello (world))"), Ok("<!-- hello (world) -->"))
+  match sexp_to_html("(% hello (world)") {
+    Ok(_) => fail("expected an error")
+    Err(error) => @test.assert_eq(error.contains("unterminated comment"), true)
+  }
+}
+
+///|
 test "nested element with attribute escaping" {
   let input = "(p One hundred million and two thousand years from now\n  (span (:style font-family: \"Alegreya Sans SC\", sans-serif) 爱してる))"
   let expected = "<p>One hundred million and two thousand years from now\n  <span style=\"font-family: &quot;Alegreya Sans SC&quot;, sans-serif\">爱してる</span></p>"
@@ -62,6 +72,40 @@ test "raw text form preserves leading whitespace and escaped parens" {
 }
 
 ///|
+test "raw text empty edge cases are valid" {
+  @test.assert_eq(sexp_to_html("(p (#))"), Ok("<p></p>"))
+  @test.assert_eq(sexp_to_html("(p (# ))"), Ok("<p></p>"))
+}
+
+///|
+test "raw text consumes only one separator whitespace" {
+  let input = "(p (#   world))"
+  let expected = "<p>  world</p>"
+  @test.assert_eq(sexp_to_html(input), Ok(expected))
+}
+
+///|
+test "raw text separator may be any whitespace character" {
+  @test.assert_eq(sexp_to_html("(p (#\nworld))"), Ok("<p>world</p>"))
+  @test.assert_eq(sexp_to_html("(p (# \nworld))"), Ok("<p>\nworld</p>"))
+}
+
+///|
+test "raw text remains literal before later attributes" {
+  let input = "(div (#  ) (:class x))"
+  let expected = "<div class=\"x\"> </div>"
+  @test.assert_eq(sexp_to_html(input), Ok(expected))
+}
+
+///|
+test "lists must have a non-empty head term" {
+  match sexp_to_html("(())") {
+    Ok(_) => fail("expected an error")
+    Err(error) => @test.assert_eq(error.contains("list head"), true)
+  }
+}
+
+///|
 test "html fragment to sexp element" {
   let input = "<p>Hello</p>"
   @test.assert_eq(html_to_sexp(input), Ok("(p Hello)"))
@@ -93,4 +137,30 @@ test "leading newline becomes raw text form" {
   let input = "<p><span>Hello</span>\nworld</p>"
   let expected = "(p (span Hello) (# \nworld))"
   @test.assert_eq(html_to_sexp(input), Ok(expected))
+}
+
+///|
+test "whitespace-only text nodes use canonical raw text forms" {
+  @test.assert_eq(html_to_sexp("<p> </p>"), Ok("(p (#  ))"))
+  @test.assert_eq(html_to_sexp("<p>\n</p>"), Ok("(p (# \n))"))
+}
+
+///|
+test "html comments are trimmed when canonicalized" {
+  @test.assert_eq(html_to_sexp("<!--  hello  -->"), Ok("(% hello)"))
+  @test.assert_eq(html_to_sexp("<!--   -->"), Ok("(% )"))
+}
+
+///|
+test "html attrs with leading whitespace values are unsupported" {
+  match html_to_sexp("<div title=\" hello\"></div>") {
+    Ok(_) => fail("expected an error")
+    Err(error) => @test.assert_eq(error.contains("leading whitespace"), true)
+  }
+}
+
+///|
+test "empty html attr values canonicalize to minimized attrs" {
+  @test.assert_eq(html_to_sexp("<details open></details>"), Ok("(details (:open))"))
+  @test.assert_eq(html_to_sexp("<div class=\"\"></div>"), Ok("(div (:class))"))
 }

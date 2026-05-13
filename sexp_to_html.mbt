@@ -7,6 +7,7 @@ pub fn sexp_to_html(source : String) -> Result[String, String] {
 ///|
 priv enum Node {
   Text(String)
+  RawText(String)
   Space
   Comment(String)
   Element(String, Array[(String, String?)], Array[Node])
@@ -73,6 +74,9 @@ fn parse_list_item(
     return Err(error_at(open_index, "empty list is invalid"))
   }
   let (head, next) = parse_head(chars, index)
+  if head.is_empty() {
+    return Err(error_at(index, "list head cannot be empty"))
+  }
   if head == "%" {
     parse_comment(chars, next)
   } else if head == "#" {
@@ -113,7 +117,7 @@ fn parse_raw_text(
   }
   capture_raw_text(chars, start).map(fn(result) {
     let (content, next) = result
-    (Node(Text(content)), next)
+    (Node(RawText(content)), next)
   })
 }
 
@@ -435,6 +439,7 @@ fn render_document(nodes : Array[Node]) -> String {
 fn render_node(node : Node) -> String {
   match node {
     Text(text) => escape_text(text)
+    RawText(text) => escape_text(text)
     Space => " "
     Comment(text) => "<!-- " + text + " -->"
     Element(tag, attrs, children) => render_element(tag, attrs, children)

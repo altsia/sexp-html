@@ -51,7 +51,7 @@ List meaning depends on its first item:
 - `(# ...)` → explicit raw text node
 - `(~)` → one literal space
 - `(~tag ...)` → element with one literal space on both sides
-- `(tag ...)` → element, where `tag` is a text term
+- `(tag ...)` → element, where `tag` is a non-empty text term
 - anything else → invalid
 
 Because text is delimited by parentheses rather than whitespace, this is one text term:
@@ -69,6 +69,7 @@ One hundred million and two thousand years from now
 ```
 
 - `tag` is the element name
+- `tag` must not be empty
 - each remaining item is either an attribute or a child node
 
 Example:
@@ -87,6 +88,9 @@ Example:
 (% comment text)
 ```
 
+- any whitespace immediately after `%` is only a separator and is not part of the comment payload
+- unescaped parentheses inside the comment payload must still be balanced, or be written as `\(` and `\)`
+
 Example:
 
 ```sexp
@@ -104,7 +108,10 @@ Example:
 ```
 
 - `(# ...)` serializes to a text node
+- the exact form `(#)` is valid and denotes an empty text node
 - the first whitespace character after `#`, if present, is only a separator and is not part of the text payload
+- that separator may be a space, tab, newline, or any other whitespace character
+- if multiple whitespace characters appear after `#`, only the first one is treated as the separator; the rest belong to the text payload
 - its content starts after that separator and continues until the matching unescaped `)`
 - unlike ordinary text terms, this form preserves leading spaces, newlines, and other syntactic whitespace
 - inside this form, `\(` becomes `(` and `\)` becomes `)`
@@ -231,6 +238,10 @@ Example:
 
 Attribute values must be plain text only.
 
+- leading whitespace in an attribute value is not representable in this notation
+- therefore `html_to_sexp` must reject HTML attributes whose value begins with whitespace
+- this notation does not distinguish an explicit empty-string attribute value from a minimized / valueless HTML attribute; both canonicalize to `(:name)` when converting from HTML
+
 Valid:
 
 ```sexp
@@ -256,9 +267,35 @@ Example:
 <div class="b">hello</div>
 ```
 
+Whitespace immediately before a later attribute is only syntactic separator whitespace and does not create a text node.
+
+Example:
+
+```sexp
+(div hello   (:class x))
+```
+
+```html
+<div class="x">hello</div>
+```
+
+Explicit raw text nodes are different: their payload remains literal even if a later attribute appears.
+
+Example:
+
+```sexp
+(div (#  ) (:class x))
+```
+
+```html
+<div class="x"> </div>
+```
+
 ### 4.4 Comments
 
 Comment contents are not recursively interpreted as HTML structure.
+
+- when converting HTML back to this notation, comment text is canonicalized by trimming leading and trailing whitespace
 
 Example:
 
@@ -356,9 +393,18 @@ For `(# ...)`:
 3. resolve `\(` to `(` and `\)` to `)`
 4. emit the resulting text literally
 
+Consequences:
+
+- `(#)` and `(# )` both serialize to the empty string
+- `(#  )` serializes to one literal space
+- `(#\nhello)` serializes to `hello`
+- `(# \nhello)` serializes to `\nhello`
+
 ### 5.4 Fragment model
 
 A document is an HTML fragment, not necessarily a single rooted tree. Multiple top-level nodes are allowed.
+
+Lists whose first item is missing or is itself another list are invalid.
 
 
 ## 6. Examples
