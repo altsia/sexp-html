@@ -22,7 +22,7 @@
 
   ```html
   <p>One hundred million and two thousand years from now 
-    <span style="font-family: \"Alegreya Sans SC", sans-serif\">爱してる</span>
+    <span style="font-family: \"Alegreya Sans SC\", sans-serif">爱してる</span>
   </p>
   ```
 

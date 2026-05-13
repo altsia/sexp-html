@@ -6,62 +6,63 @@ pub fn html_to_sexp(source : String) -> Result[String, String] {
 
 ///|
 fn render_html_fragment(document : @html5.Document) -> Result[String, String] {
+  render_html_fragment_terms(document, document.get_children(0)).map(fn(terms) {
+    terms.join("\n")
+  })
+}
+
+///|
+fn render_html_fragment_terms(
+  document : @html5.Document,
+  node_ids : Array[Int],
+) -> Result[Array[String], String] {
   let terms : Array[String] = []
-  let root_children = document.get_children(0)
-  for node_id in root_children {
-    match append_html_fragment_node(document, node_id, terms) {
-      Ok(_) => ()
+  for node_id in node_ids {
+    match render_html_fragment_node_terms(document, node_id) {
+      Ok(node_terms) => append_terms(terms, node_terms)
       Err(error) => return Err(error)
     }
   }
-  Ok(terms.join("\n"))
+  Ok(terms)
 }
 
 ///|
-fn append_html_fragment_node(
+fn render_html_fragment_node_terms(
   document : @html5.Document,
   node_id : Int,
-  terms : Array[String],
-) -> Result[Unit, String] {
+) -> Result[Array[String], String] {
   if node_id == document.document_element {
-    return append_html_document_element(document, node_id, terms)
+    return render_html_document_element_terms(document, node_id)
   }
-  match render_html_node(document, node_id) {
-    Ok(Some(term)) => {
-      terms.push(term)
-      Ok(())
+  render_html_node(document, node_id).map(fn(term) {
+    match term {
+      Some(term) => [term]
+      None => []
     }
-    Ok(None) => Ok(())
-    Err(error) => Err(error)
-  }
+  })
 }
 
 ///|
-fn append_html_document_element(
+fn render_html_document_element_terms(
   document : @html5.Document,
   node_id : Int,
-  terms : Array[String],
-) -> Result[Unit, String] {
+) -> Result[Array[String], String] {
   match document.get_node(node_id) {
     Some(@html5.ElementNode(element)) => {
+      let terms : Array[String] = []
       for child_id in element.children {
-        if child_id == document.head_element ||
+        let nested_ids = if child_id == document.head_element ||
           child_id == document.body_element {
-          let children = document.get_children(child_id)
-          for grandchild_id in children {
-            match append_html_fragment_node(document, grandchild_id, terms) {
-              Ok(_) => ()
-              Err(error) => return Err(error)
-            }
-          }
+          document.get_children(child_id)
         } else {
-          match append_html_fragment_node(document, child_id, terms) {
-            Ok(_) => ()
-            Err(error) => return Err(error)
-          }
+          [child_id]
+        }
+        match render_html_fragment_terms(document, nested_ids) {
+          Ok(child_terms) => append_terms(terms, child_terms)
+          Err(error) => return Err(error)
         }
       }
-      Ok(())
+      Ok(terms)
     }
     _ => Err("internal error: document root is not an html element")
   }
@@ -90,13 +91,9 @@ fn render_html_node_list(
   document : @html5.Document,
   node_ids : Array[Int],
 ) -> Result[String?, String] {
-  let terms : Array[String] = []
-  for node_id in node_ids {
-    match render_html_node(document, node_id) {
-      Ok(Some(term)) => terms.push(term)
-      Ok(None) => ()
-      Err(error) => return Err(error)
-    }
+  let terms = match collect_rendered_html_terms(document, node_ids) {
+    Ok(terms) => terms
+    Err(error) => return Err(error)
   }
   if terms.is_empty() {
     Ok(None)
@@ -140,17 +137,13 @@ fn render_html_element_term(
       Err(error) => return Err(error)
     }
   }
-  let child_terms : Array[String] = []
   let child_ids = match document.get_template_content(node_id) {
     id if id != @html5.NO_NODE => document.get_children(id)
     _ => element.children
   }
-  for child_id in child_ids {
-    match render_html_node(document, child_id) {
-      Ok(Some(term)) => child_terms.push(term)
-      Ok(None) => ()
-      Err(error) => return Err(error)
-    }
+  let child_terms = match collect_rendered_html_terms(document, child_ids) {
+    Ok(terms) => terms
+    Err(error) => return Err(error)
   }
   for term in child_terms {
     builder.write_char(' ')
@@ -174,6 +167,29 @@ fn render_html_attribute(
     )
   }
   Ok("(:" + name + " " + escape_sexp_text(value) + ")")
+}
+
+///|
+fn collect_rendered_html_terms(
+  document : @html5.Document,
+  node_ids : Array[Int],
+) -> Result[Array[String], String] {
+  let terms : Array[String] = []
+  for node_id in node_ids {
+    match render_html_node(document, node_id) {
+      Ok(Some(term)) => terms.push(term)
+      Ok(None) => ()
+      Err(error) => return Err(error)
+    }
+  }
+  Ok(terms)
+}
+
+///|
+fn append_terms(target : Array[String], terms : Array[String]) -> Unit {
+  for term in terms {
+    target.push(term)
+  }
 }
 
 ///|

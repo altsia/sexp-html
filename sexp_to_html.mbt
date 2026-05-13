@@ -1,10 +1,7 @@
 ///|
 pub fn sexp_to_html(source : String) -> Result[String, String] {
   let chars = source.to_array()
-  match parse_document(chars) {
-    Ok(nodes) => Ok(render_document(nodes))
-    Err(error) => Err(error)
-  }
+  parse_document(chars).map(render_document)
 }
 
 ///|
@@ -47,12 +44,13 @@ fn parse_node(chars : Array[Char], index : Int) -> Result[(Node, Int), String] {
     return Err(error_at(index, "unexpected end of input"))
   }
   if chars[index] == '(' {
-    match parse_list_item(chars, index) {
-      Ok((Node(node), next)) => Ok((node, next))
-      Ok((Attr(_, _), _)) =>
-        Err(error_at(index, "attribute cannot appear at the document root"))
-      Err(error) => Err(error)
-    }
+    parse_list_item(chars, index).bind(fn(item) {
+      match item {
+        (Node(node), next) => Ok((node, next))
+        (Attr(_, _), _) =>
+          Err(error_at(index, "attribute cannot appear at the document root"))
+      }
+    })
   } else if chars[index] == ')' {
     Err(error_at(index, "unexpected ')'"))
   } else {
@@ -96,10 +94,10 @@ fn parse_comment(
   after_head : Int,
 ) -> Result[(ParsedListItem, Int), String] {
   let start = skip_whitespace(chars, after_head)
-  match capture_comment_text(chars, start) {
-    Ok((content, next)) => Ok((Node(Comment(content)), next))
-    Err(error) => Err(error)
-  }
+  capture_comment_text(chars, start).map(fn(result) {
+    let (content, next) = result
+    (Node(Comment(content)), next)
+  })
 }
 
 ///|
@@ -113,10 +111,10 @@ fn parse_raw_text(
   } else {
     after_head
   }
-  match capture_raw_text(chars, start) {
-    Ok((content, next)) => Ok((Node(Text(content)), next))
-    Err(error) => Err(error)
-  }
+  capture_raw_text(chars, start).map(fn(result) {
+    let (content, next) = result
+    (Node(Text(content)), next)
+  })
 }
 
 ///|
@@ -164,10 +162,10 @@ fn parse_attribute(
   if chars[index] == ')' {
     return Ok((Attr(name, None), index + 1))
   }
-  match capture_attribute_value(chars, index) {
-    Ok((value, next)) => Ok((Attr(name, Some(value)), next))
-    Err(error) => Err(error)
-  }
+  capture_attribute_value(chars, index).map(fn(result) {
+    let (value, next) = result
+    (Attr(name, Some(value)), next)
+  })
 }
 
 ///|
@@ -427,10 +425,8 @@ fn trim_trailing_text_before_attribute(children : Array[Node]) -> Unit {
 ///|
 fn render_document(nodes : Array[Node]) -> String {
   let parts : Array[String] = []
-  let mut index = 0
-  while index < nodes.length() {
-    parts.push(render_node(nodes[index]))
-    index = index + 1
+  for node in nodes {
+    parts.push(render_node(node))
   }
   parts.join("")
 }
@@ -454,9 +450,8 @@ fn render_element(
   children : Array[Node],
 ) -> String {
   let parts : Array[String] = ["<", tag]
-  let mut index = 0
-  while index < attrs.length() {
-    match attrs[index] {
+  for attr in attrs {
+    match attr {
       (name, None) => {
         parts.push(" ")
         parts.push(name)
@@ -469,16 +464,13 @@ fn render_element(
         parts.push("\"")
       }
     }
-    index = index + 1
   }
   parts.push(">")
   if is_void_tag(tag) {
     return parts.join("")
   }
-  index = 0
-  while index < children.length() {
-    parts.push(render_node(children[index]))
-    index = index + 1
+  for child in children {
+    parts.push(render_node(child))
   }
   parts.push("</")
   parts.push(tag)

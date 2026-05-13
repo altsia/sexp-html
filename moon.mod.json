@@ -7,6 +7,6 @@
   "readme": "README.md",
   "repository": "https://github.com/kokic/sexp-html",
   "license": "Apache-2.0",
-  "keywords": [],
+  "keywords": ["s-exp", "html"],
   "description": "HTML's s-expression representation"
 }
