@@ -71,7 +71,7 @@ see [SPEC.md](./SPEC.md).
 
 ## AST transform API
 
-For custom forms, parse to the public AST, transform it, then render it:
+For custom forms that should become normal HTML-shaped nodes, parse to the public AST, transform it, then render it:
 
 ```moonbit
 parse_sexp_html("(p (icon search))").map(transform).map(render_html)
@@ -88,3 +88,16 @@ pub(all) enum SexpNode {
 ```
 
 Syntax forms such as `(# ...)`, `(~)`, and `(~tag ...)` are expanded during parsing into ordinary `Text` and `Element` nodes.
+
+For custom forms that are rendered by existing HTML-producing tools, provide a render hook:
+
+```moonbit
+sexp_to_html_with("(article (markdown **Hello**))", (node) => {
+  match node {
+    Element("markdown", _, [Text(source)]) => Some(markdown_to_html(source))
+    _ => None
+  }
+})
+```
+
+When the hook returns `Some(html)`, that string is inserted as HTML directly. When it returns `None`, normal rendering and escaping are used.

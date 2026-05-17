@@ -135,6 +135,20 @@ test "public AST transform can rewrite parsed elements" {
 }
 
 ///|
+test "custom renderer can emit html for selected nodes" {
+  let input = "(article (markdown **Hello**))"
+  let expected = "<article><strong>Hello</strong></article>"
+  @test.assert_eq(sexp_to_html_with(input, render_markdown_test_node), Ok(expected))
+}
+
+///|
+test "custom renderer keeps default escaping for other nodes" {
+  let input = "(p <escaped> (raw-html <em>trusted</em>))"
+  let expected = "<p>&lt;escaped&gt; <em>trusted</em></p>"
+  @test.assert_eq(sexp_to_html_with(input, render_raw_html_test_node), Ok(expected))
+}
+
+///|
 test "html fragment to sexp element" {
   let input = "<p>Hello</p>"
   @test.assert_eq(html_to_sexp(input), Ok("(p Hello)"))
@@ -215,5 +229,21 @@ fn transform_icon_test_node(node : SexpNode) -> SexpNode {
     Element(tag, attrs, children) =>
       SexpNode::Element(tag, attrs, transform_icon_test_nodes(children))
     _ => node
+  }
+}
+
+///|
+fn render_markdown_test_node(node : SexpNode) -> String? {
+  match node {
+    Element("markdown", _, [Text("**Hello**")]) => Some("<strong>Hello</strong>")
+    _ => None
+  }
+}
+
+///|
+fn render_raw_html_test_node(node : SexpNode) -> String? {
+  match node {
+    Element("raw-html", _, [Text(html)]) => Some(html)
+    _ => None
   }
 }
