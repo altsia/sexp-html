@@ -63,19 +63,16 @@ fn Cursor::error(self : Cursor, message : String) -> String {
 }
 
 ///|
-priv enum Node {
+pub(all) enum SexpNode {
   Text(String)
-  RawText(String)
-  Space
   Comment(String)
-  Element(String, Array[(String, String?)], Array[Node])
-  SpacedElement(String, Array[(String, String?)], Array[Node])
+  Element(String, Array[(String, String?)], Array[SexpNode])
 }
 
 ///|
 priv enum ParsedListItem {
   Attr(String, String?)
-  Node(Node)
+  Nodes(Array[(SexpNode, Bool)])
 }
 
 ///|
@@ -89,16 +86,21 @@ priv enum ParsedHead {
 }
 
 ///|
-fn parse_document(start : Cursor) -> Result[Array[Node], String] {
-  let nodes : Array[Node] = []
+pub fn parse_sexp_html(source : String) -> Result[Array[SexpNode], String] {
+  parse_document(Cursor::new(source.to_array(), 0))
+}
+
+///|
+fn parse_document(start : Cursor) -> Result[Array[SexpNode], String] {
+  let nodes : Array[SexpNode] = []
   let mut cursor = start.skip_whitespace()
   while !cursor.is_end() {
     if cursor.peek() == Some(')') {
       return Err(cursor.error("unexpected ')'"))
     }
     match parse_node(cursor) {
-      Ok((node, next)) => {
-        nodes.push(node)
+      Ok((parsed_nodes, next)) => {
+        append_parsed_nodes(nodes, parsed_nodes)
         cursor = next.skip_whitespace()
       }
       Err(error) => return Err(error)
@@ -108,13 +110,13 @@ fn parse_document(start : Cursor) -> Result[Array[Node], String] {
 }
 
 ///|
-fn parse_node(cursor : Cursor) -> Result[(Node, Cursor), String] {
+fn parse_node(cursor : Cursor) -> Result[(Array[(SexpNode, Bool)], Cursor), String] {
   match cursor.peek() {
     None => Err(cursor.error("unexpected end of input"))
     Some('(') =>
       parse_list_item(cursor).bind(fn(item) {
         match item {
-          (Node(node), next) => Ok((node, next))
+          (Nodes(nodes), next) => Ok((nodes, next))
           (Attr(_, _), _) =>
             Err(cursor.error("attribute cannot appear at the document root"))
         }
@@ -122,7 +124,7 @@ fn parse_node(cursor : Cursor) -> Result[(Node, Cursor), String] {
     Some(')') => Err(cursor.error("unexpected ')'"))
     Some(_) => {
       let (text, next) = parse_text(cursor)
-      Ok((Text(text), next))
+      Ok(([(Text(text), true)], next))
     }
   }
 }
@@ -202,7 +204,7 @@ fn parse_comment(
   let start = after_head.skip_whitespace()
   capture_comment_text(start).map(fn(result) {
     let (content, next) = result
-    (Node(Comment(content)), next)
+    (Nodes([(Comment(content), false)]), next)
   })
 }
 
@@ -217,7 +219,7 @@ fn parse_raw_text(
   }
   capture_raw_text(start).map(fn(result) {
     let (content, next) = result
-    (Node(RawText(content)), next)
+    (Nodes([(Text(content), false)]), next)
   })
 }
 
@@ -226,7 +228,7 @@ fn parse_space(after_head : Cursor) -> Result[(ParsedListItem, Cursor), String] 
   let cursor = after_head.skip_whitespace()
   match cursor.peek() {
     None => Err(after_head.error("unterminated (~) form"))
-    Some(')') => Ok((Node(Space), cursor.advance(1)))
+    Some(')') => Ok((Nodes([(Text(" "), false)]), cursor.advance(1)))
     _ => Err(cursor.error("(~) cannot contain attributes or children"))
   }
 }
@@ -263,7 +265,7 @@ fn parse_element_with_kind(
   spaced : Bool,
 ) -> Result[(ParsedListItem, Cursor), String] {
   let attrs : Array[(String, String?)] = []
-  let children : Array[Node] = []
+  let children : Array[(SexpNode, Bool)] = []
   let mut cursor = after_head.skip_whitespace()
   while !cursor.is_end() {
     match cursor.peek() {
@@ -283,7 +285,7 @@ fn parse_element_with_kind(
 fn close_element(
   tag : String,
   attrs : Array[(String, String?)],
-  children : Array[Node],
+  children : Array[(SexpNode, Bool)],
   spaced : Bool,
   close : Cursor,
 ) -> Result[(ParsedListItem, Cursor), String] {
@@ -292,19 +294,22 @@ fn close_element(
       close.error("void element <" + tag + "> cannot have child nodes"),
     )
   }
-  let node = if spaced {
-    SpacedElement(tag, attrs, children)
+  let element = Element(tag, attrs, parsed_node_values(children))
+  if spaced {
+    Ok((
+      Nodes([(Text(" "), false), (element, false), (Text(" "), false)]),
+      close.advance(1),
+    ))
   } else {
-    Element(tag, attrs, children)
+    Ok((Nodes([(element, false)]), close.advance(1)))
   }
-  Ok((Node(node), close.advance(1)))
 }
 
 ///|
 fn parse_element_list_item(
   cursor : Cursor,
   attrs : Array[(String, String?)],
-  children : Array[Node],
+  children : Array[(SexpNode, Bool)],
 ) -> Result[Cursor, String] {
   match parse_list_item(cursor) {
     Ok((Attr(name, value), next)) => {
@@ -312,8 +317,8 @@ fn parse_element_list_item(
       upsert_attribute(attrs, name, value)
       Ok(next)
     }
-    Ok((Node(node), next)) => {
-      children.push(node)
+    Ok((Nodes(nodes), next)) => {
+      append_internal_nodes(children, nodes)
       Ok(next)
     }
     Err(error) => Err(error)
@@ -321,10 +326,10 @@ fn parse_element_list_item(
 }
 
 ///|
-fn parse_element_text(cursor : Cursor, children : Array[Node]) -> Cursor {
+fn parse_element_text(cursor : Cursor, children : Array[(SexpNode, Bool)]) -> Cursor {
   let (text, next) = parse_text(cursor)
   if !text.is_empty() {
-    children.push(Text(text))
+    children.push((Text(text), true))
   }
   next
 }
@@ -501,18 +506,44 @@ fn upsert_attribute(
 }
 
 ///|
-fn trim_trailing_text_before_attribute(children : Array[Node]) -> Unit {
+fn append_parsed_nodes(target : Array[SexpNode], nodes : Array[(SexpNode, Bool)]) -> Unit {
+  for parsed_node in nodes {
+    match parsed_node {
+      (node, _) => target.push(node)
+    }
+  }
+}
+
+///|
+fn append_internal_nodes(
+  target : Array[(SexpNode, Bool)],
+  nodes : Array[(SexpNode, Bool)],
+) -> Unit {
+  for node in nodes {
+    target.push(node)
+  }
+}
+
+///|
+fn parsed_node_values(nodes : Array[(SexpNode, Bool)]) -> Array[SexpNode] {
+  let values : Array[SexpNode] = []
+  append_parsed_nodes(values, nodes)
+  values
+}
+
+///|
+fn trim_trailing_text_before_attribute(children : Array[(SexpNode, Bool)]) -> Unit {
   if children.is_empty() {
     return
   }
   let last_index = children.length() - 1
   match children[last_index] {
-    Text(text) => {
+    (Text(text), true) => {
       let trimmed = text.trim_end().to_owned()
       if trimmed.is_empty() {
         children.truncate(last_index)
       } else {
-        children[last_index] = Text(trimmed)
+        children[last_index] = (Text(trimmed), true)
       }
     }
     _ => ()

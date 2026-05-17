@@ -106,6 +106,35 @@ test "lists must have a non-empty head term" {
 }
 
 ///|
+test "public AST can be rendered directly" {
+  let nodes = [
+    SexpNode::Element(
+      "p",
+      [],
+      [
+        SexpNode::Text("Hello "),
+        SexpNode::Element("strong", [], [SexpNode::Text("AST")]),
+      ],
+    ),
+  ]
+  @test.assert_eq(render_html(nodes), "<p>Hello <strong>AST</strong></p>")
+}
+
+///|
+test "public AST transform can rewrite parsed elements" {
+  match parse_sexp_html("(p (icon search))") {
+    Err(error) => fail(error)
+    Ok(nodes) => {
+      let transformed = transform_icon_test_nodes(nodes)
+      @test.assert_eq(
+        render_html(transformed),
+        "<p><span class=\"icon\">search</span></p>",
+      )
+    }
+  }
+}
+
+///|
 test "html fragment to sexp element" {
   let input = "<p>Hello</p>"
   @test.assert_eq(html_to_sexp(input), Ok("(p Hello)"))
@@ -163,4 +192,28 @@ test "html attrs with leading whitespace values are unsupported" {
 test "empty html attr values canonicalize to minimized attrs" {
   @test.assert_eq(html_to_sexp("<details open></details>"), Ok("(details (:open))"))
   @test.assert_eq(html_to_sexp("<div class=\"\"></div>"), Ok("(div (:class))"))
+}
+
+///|
+fn transform_icon_test_nodes(nodes : Array[SexpNode]) -> Array[SexpNode] {
+  let transformed : Array[SexpNode] = []
+  for node in nodes {
+    transformed.push(transform_icon_test_node(node))
+  }
+  transformed
+}
+
+///|
+fn transform_icon_test_node(node : SexpNode) -> SexpNode {
+  match node {
+    Element("icon", _, children) =>
+      SexpNode::Element(
+        "span",
+        [("class", Some("icon"))],
+        transform_icon_test_nodes(children),
+      )
+    Element(tag, attrs, children) =>
+      SexpNode::Element(tag, attrs, transform_icon_test_nodes(children))
+    _ => node
+  }
 }

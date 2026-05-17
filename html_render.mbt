@@ -1,5 +1,10 @@
 ///|
-fn render_document(nodes : Array[Node]) -> String {
+pub fn sexp_to_html(source : String) -> Result[String, String] {
+  parse_sexp_html(source).map(render_html)
+}
+
+///|
+pub fn render_html(nodes : Array[SexpNode]) -> String {
   let parts : Array[String] = []
   for node in nodes {
     parts.push(render_node(node))
@@ -8,15 +13,11 @@ fn render_document(nodes : Array[Node]) -> String {
 }
 
 ///|
-fn render_node(node : Node) -> String {
+fn render_node(node : SexpNode) -> String {
   match node {
     Text(text) => escape_text(text)
-    RawText(text) => escape_text(text)
-    Space => " "
     Comment(text) => "<!-- " + text + " -->"
     Element(tag, attrs, children) => render_element(tag, attrs, children)
-    SpacedElement(tag, attrs, children) =>
-      " " + render_element(tag, attrs, children) + " "
   }
 }
 
@@ -24,7 +25,7 @@ fn render_node(node : Node) -> String {
 fn render_element(
   tag : String,
   attrs : Array[(String, String?)],
-  children : Array[Node],
+  children : Array[SexpNode],
 ) -> String {
   let parts : Array[String] = ["<", tag]
   for attr in attrs {
