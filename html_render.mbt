@@ -4,16 +4,6 @@ pub fn sexp_to_html(source : String) -> Result[String, String] {
 }
 
 ///|
-pub fn sexp_to_html_with(
-  source : String,
-  render_custom_node : (SexpNode) -> String?,
-) -> Result[String, String] {
-  parse_sexp_html(source).map(nodes => {
-    render_html_with(nodes, render_custom_node)
-  })
-}
-
-///|
 pub fn render_html(nodes : Array[SexpNode]) -> String {
   let parts : Array[String] = []
   for node in nodes {
@@ -23,15 +13,76 @@ pub fn render_html(nodes : Array[SexpNode]) -> String {
 }
 
 ///|
-pub fn render_html_with(
-  nodes : Array[SexpNode],
-  render_custom_node : (SexpNode) -> String?,
+pub fn render_html_document(
+  attrs : Array[(String, String?)],
+  head : Array[SexpNode],
+  body : Array[SexpNode],
+  doctype : String?,
 ) -> String {
-  let parts : Array[String] = []
-  for node in nodes {
-    parts.push(render_node_with(node, render_custom_node))
+  let lines : Array[String] = []
+  match doctype {
+    Some(value) => lines.push("<!DOCTYPE \{value}>")
+    None => ()
   }
+  lines.push(render_open_tag("html", attrs))
+  lines.push("  <head>")
+  push_rendered_lines(lines, head, "    ")
+  lines.push("  </head>")
+  lines.push("  <body>")
+  push_rendered_lines(lines, body, "    ")
+  lines.push("  </body>")
+  lines.push("</html>")
+  lines.join("\n")
+}
+
+///|
+pub fn render_open_tag(
+  tag : String,
+  attrs : Array[(String, String?)],
+) -> String {
+  let parts : Array[String] = ["<", tag]
+  append_rendered_attrs(parts, attrs)
+  parts.push(">")
   parts.join("")
+}
+
+///|
+pub fn upsert_attr(
+  attrs : Array[(String, String?)],
+  name : String,
+  value : String?,
+) -> Unit {
+  for i in 0..<attrs.length() {
+    match attrs[i] {
+      (existing, _) if existing == name => {
+        attrs[i] = (name, value)
+        return
+      }
+      _ => ()
+    }
+  }
+  attrs.push((name, value))
+}
+
+///|
+pub fn append_class(
+  attrs : Array[(String, String?)],
+  class_name : String,
+) -> Unit {
+  for i in 0..<attrs.length() {
+    match attrs[i] {
+      ("class", Some(value)) => {
+        attrs[i] = ("class", Some(value + " " + class_name))
+        return
+      }
+      ("class", None) => {
+        attrs[i] = ("class", Some(class_name))
+        return
+      }
+      _ => ()
+    }
+  }
+  attrs.push(("class", Some(class_name)))
 }
 
 ///|
@@ -39,24 +90,24 @@ fn render_node(node : SexpNode) -> String {
   match node {
     Text(text) => escape_text(text)
     Comment(text) => "<!-- " + text + " -->"
+    RawHtml(html) => html
     Element(tag, attrs, children) => render_element(tag, attrs, children)
   }
 }
 
 ///|
-fn render_node_with(
-  node : SexpNode,
-  render_custom_node : (SexpNode) -> String?,
-) -> String {
-  match render_custom_node(node) {
-    Some(html) => html
-    None =>
-      match node {
-        Text(text) => escape_text(text)
-        Comment(text) => "<!-- " + text + " -->"
-        Element(tag, attrs, children) =>
-          render_element_with(tag, attrs, children, render_custom_node)
+fn push_rendered_lines(
+  lines : Array[String],
+  nodes : Array[SexpNode],
+  indent : String,
+) -> Unit {
+  for node in nodes {
+    let rendered = render_html([node])
+    for line in rendered.split("\n") {
+      if line.length() > 0 {
+        lines.push(indent + line.to_owned())
       }
+    }
   }
 }
 
@@ -67,21 +118,7 @@ fn render_element(
   children : Array[SexpNode],
 ) -> String {
   let parts : Array[String] = ["<", tag]
-  for attr in attrs {
-    match attr {
-      (name, None) => {
-        parts.push(" ")
-        parts.push(name)
-      }
-      (name, Some(value)) => {
-        parts.push(" ")
-        parts.push(name)
-        parts.push("=\"")
-        parts.push(escape_attribute_value(value))
-        parts.push("\"")
-      }
-    }
-  }
+  append_rendered_attrs(parts, attrs)
   parts.push(">")
   if is_void_tag(tag) {
     return parts.join("")
@@ -96,13 +133,10 @@ fn render_element(
 }
 
 ///|
-fn render_element_with(
-  tag : String,
+fn append_rendered_attrs(
+  parts : Array[String],
   attrs : Array[(String, String?)],
-  children : Array[SexpNode],
-  render_custom_node : (SexpNode) -> String?,
-) -> String {
-  let parts : Array[String] = ["<", tag]
+) -> Unit {
   for attr in attrs {
     match attr {
       (name, None) => {
@@ -118,17 +152,6 @@ fn render_element_with(
       }
     }
   }
-  parts.push(">")
-  if is_void_tag(tag) {
-    return parts.join("")
-  }
-  for child in children {
-    parts.push(render_node_with(child, render_custom_node))
-  }
-  parts.push("</")
-  parts.push(tag)
-  parts.push(">")
-  parts.join("")
 }
 
 ///|

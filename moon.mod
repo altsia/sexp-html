@@ -1,0 +1,17 @@
+name = "kokic/sexp-html"
+
+version = "0.2.2"
+
+import {
+  "Milky2018/html@0.1.2",
+}
+
+readme = "README.md"
+
+repository = "https://github.com/kokic/sexp-html"
+
+license = "Apache-2.0"
+
+keywords = [ "s-exp", "html" ]
+
+description = "HTML's s-expression representation"

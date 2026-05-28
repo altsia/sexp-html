@@ -8,7 +8,10 @@ test "comment serialization" {
 ///|
 test "comment syntax trims separator whitespace and requires balanced parens" {
   @test.assert_eq(sexp_to_html("(%   hello)"), Ok("<!-- hello -->"))
-  @test.assert_eq(sexp_to_html("(% hello (world))"), Ok("<!-- hello (world) -->"))
+  @test.assert_eq(
+    sexp_to_html("(% hello (world))"),
+    Ok("<!-- hello (world) -->"),
+  )
   match sexp_to_html("(% hello (world)") {
     Ok(_) => fail("expected an error")
     Err(error) => @test.assert_eq(error.contains("unterminated comment"), true)
@@ -108,14 +111,10 @@ test "lists must have a non-empty head term" {
 ///|
 test "public AST can be rendered directly" {
   let nodes = [
-    SexpNode::Element(
-      "p",
-      [],
-      [
-        SexpNode::Text("Hello "),
-        SexpNode::Element("strong", [], [SexpNode::Text("AST")]),
-      ],
-    ),
+    SexpNode::Element("p", [], [
+      SexpNode::Text("Hello "),
+      SexpNode::Element("strong", [], [SexpNode::Text("AST")]),
+    ]),
   ]
   @test.assert_eq(render_html(nodes), "<p>Hello <strong>AST</strong></p>")
 }
@@ -135,17 +134,48 @@ test "public AST transform can rewrite parsed elements" {
 }
 
 ///|
-test "custom renderer can emit html for selected nodes" {
-  let input = "(article (markdown **Hello**))"
-  let expected = "<article><strong>Hello</strong></article>"
-  @test.assert_eq(sexp_to_html_with(input, render_markdown_test_node), Ok(expected))
+test "raw html node renders trusted html without escaping" {
+  let nodes = [
+    SexpNode::Element("p", [], [
+      SexpNode::Text("<escaped> "),
+      SexpNode::RawHtml("<em>trusted</em>"),
+    ]),
+  ]
+  @test.assert_eq(render_html(nodes), "<p>&lt;escaped&gt; <em>trusted</em></p>")
 }
 
 ///|
-test "custom renderer keeps default escaping for other nodes" {
-  let input = "(p <escaped> (raw-html <em>trusted</em>))"
-  let expected = "<p>&lt;escaped&gt; <em>trusted</em></p>"
-  @test.assert_eq(sexp_to_html_with(input, render_raw_html_test_node), Ok(expected))
+test "document renderer emits doctype and pretty html shell" {
+  let html = render_html_document(
+    [("lang", Some("en"))],
+    [SexpNode::Element("title", [], [SexpNode::Text("Test")])],
+    [SexpNode::Element("p", [], [SexpNode::Text("Hello")])],
+    Some("html"),
+  )
+  let expected =
+    #|<!DOCTYPE html>
+    #|<html lang="en">
+    #|  <head>
+    #|    <title>Test</title>
+    #|  </head>
+    #|  <body>
+    #|    <p>Hello</p>
+    #|  </body>
+    #|</html>
+  @test.assert_eq(html, expected)
+}
+
+///|
+test "open tag and attr helpers" {
+  let attrs : Array[(String, String?)] = []
+  upsert_attr(attrs, "class", Some("note"))
+  append_class(attrs, "warning")
+  upsert_attr(attrs, "id", Some("main"))
+  upsert_attr(attrs, "id", Some("updated"))
+  @test.assert_eq(
+    render_open_tag("section", attrs),
+    "<section class=\"note warning\" id=\"updated\">",
+  )
 }
 
 ///|
@@ -204,7 +234,10 @@ test "html attrs with leading whitespace values are unsupported" {
 
 ///|
 test "empty html attr values canonicalize to minimized attrs" {
-  @test.assert_eq(html_to_sexp("<details open></details>"), Ok("(details (:open))"))
+  @test.assert_eq(
+    html_to_sexp("<details open></details>"),
+    Ok("(details (:open))"),
+  )
   @test.assert_eq(html_to_sexp("<div class=\"\"></div>"), Ok("(div (:class))"))
 }
 
@@ -233,17 +266,3 @@ fn transform_icon_test_node(node : SexpNode) -> SexpNode {
 }
 
 ///|
-fn render_markdown_test_node(node : SexpNode) -> String? {
-  match node {
-    Element("markdown", _, [Text("**Hello**")]) => Some("<strong>Hello</strong>")
-    _ => None
-  }
-}
-
-///|
-fn render_raw_html_test_node(node : SexpNode) -> String? {
-  match node {
-    Element("raw-html", _, [Text(html)]) => Some(html)
-    _ => None
-  }
-}

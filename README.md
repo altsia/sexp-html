@@ -83,21 +83,31 @@ The public AST is normalized to HTML-shaped nodes:
 pub(all) enum SexpNode {
   Text(String)
   Comment(String)
+  RawHtml(String)
   Element(String, Array[(String, String?)], Array[SexpNode])
 }
 ```
 
 Syntax forms such as `(# ...)`, `(~)`, and `(~tag ...)` are expanded during parsing into ordinary `Text` and `Element` nodes.
 
-For custom forms that are rendered by existing HTML-producing tools, provide a render hook:
+Use `RawHtml` for trusted HTML that should be inserted directly without escaping:
 
 ```moonbit
-sexp_to_html_with("(article (markdown **Hello**))", (node) => {
-  match node {
-    Element("markdown", _, [Text(source)]) => Some(markdown_to_html(source))
-    _ => None
-  }
-})
+render_html([
+  SexpNode::Element("p", [], [
+    SexpNode::Text("<escaped> "),
+    SexpNode::RawHtml("<em>trusted</em>"),
+  ]),
+])
 ```
 
-When the hook returns `Some(html)`, that string is inserted as HTML directly. When it returns `None`, normal rendering and escaping are used.
+`sexp-html` also provides helpers for common HTML rendering operations:
+
+```moonbit
+let attrs : Array[(String, String?)] = []
+upsert_attr(attrs, "lang", Some("en"))
+append_class(attrs, "page")
+
+render_open_tag("html", attrs)
+render_html_document(attrs, head, body, Some("html"))
+```

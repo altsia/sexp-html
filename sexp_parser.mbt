@@ -2,6 +2,7 @@
 pub(all) enum SexpNode {
   Text(String)
   Comment(String)
+  RawHtml(String)
   Element(String, Array[(String, String?)], Array[SexpNode])
 }
 
@@ -46,7 +47,9 @@ fn parse_document(start : Cursor) -> Result[Array[SexpNode], String] {
 }
 
 ///|
-fn parse_node(cursor : Cursor) -> Result[(Array[(SexpNode, Bool)], Cursor), String] {
+fn parse_node(
+  cursor : Cursor,
+) -> Result[(Array[(SexpNode, Bool)], Cursor), String] {
   match cursor.peek() {
     None => Err(cursor.error("unexpected end of input"))
     Some('(') =>
@@ -232,10 +235,12 @@ fn close_element(
   }
   let element = Element(tag, attrs, parsed_node_values(children))
   if spaced {
-    Ok((
-      Nodes([(Text(" "), false), (element, false), (Text(" "), false)]),
-      close.advance(1),
-    ))
+    Ok(
+      (
+        Nodes([(Text(" "), false), (element, false), (Text(" "), false)]),
+        close.advance(1),
+      ),
+    )
   } else {
     Ok((Nodes([(element, false)]), close.advance(1)))
   }
@@ -262,7 +267,10 @@ fn parse_element_list_item(
 }
 
 ///|
-fn parse_element_text(cursor : Cursor, children : Array[(SexpNode, Bool)]) -> Cursor {
+fn parse_element_text(
+  cursor : Cursor,
+  children : Array[(SexpNode, Bool)],
+) -> Cursor {
   let (text, next) = parse_text(cursor)
   if !text.is_empty() {
     children.push((Text(text), true))
@@ -339,12 +347,7 @@ fn capture_comment_text(start : Cursor) -> Result[(String, Cursor), String] {
     }
     if ch == ')' {
       if depth == 0 {
-        return Ok(
-          (
-            String::from_array(buffer.view()),
-            start.at(index + 1),
-          ),
-        )
+        return Ok((String::from_array(buffer.view()), start.at(index + 1)))
       }
       depth = depth - 1
       buffer.push(ch)
@@ -377,9 +380,7 @@ fn capture_raw_text(start : Cursor) -> Result[(String, Cursor), String] {
       continue
     }
     if ch == ')' {
-      return Ok(
-        (String::from_array(buffer.view()), start.at(index + 1)),
-      )
+      return Ok((String::from_array(buffer.view()), start.at(index + 1)))
     }
     buffer.push(ch)
     index = index + 1
@@ -407,14 +408,10 @@ fn capture_attribute_value(start : Cursor) -> Result[(String, Cursor), String] {
       continue
     }
     if ch == '(' {
-      return Err(
-        start.at(index).error("attribute values must be plain text"),
-      )
+      return Err(start.at(index).error("attribute values must be plain text"))
     }
     if ch == ')' {
-      return Ok(
-        (String::from_array(buffer.view()), start.at(index + 1)),
-      )
+      return Ok((String::from_array(buffer.view()), start.at(index + 1)))
     }
     buffer.push(ch)
     index = index + 1
@@ -442,7 +439,10 @@ fn upsert_attribute(
 }
 
 ///|
-fn append_parsed_nodes(target : Array[SexpNode], nodes : Array[(SexpNode, Bool)]) -> Unit {
+fn append_parsed_nodes(
+  target : Array[SexpNode],
+  nodes : Array[(SexpNode, Bool)],
+) -> Unit {
   for parsed_node in nodes {
     match parsed_node {
       (node, _) => target.push(node)
@@ -468,7 +468,9 @@ fn parsed_node_values(nodes : Array[(SexpNode, Bool)]) -> Array[SexpNode] {
 }
 
 ///|
-fn trim_trailing_text_before_attribute(children : Array[(SexpNode, Bool)]) -> Unit {
+fn trim_trailing_text_before_attribute(
+  children : Array[(SexpNode, Bool)],
+) -> Unit {
   if children.is_empty() {
     return
   }
