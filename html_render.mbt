@@ -5,11 +5,7 @@ pub fn sexp_to_html(source : String) -> Result[String, String] {
 
 ///|
 pub fn render_html(nodes : Array[SexpNode]) -> String {
-  let parts : Array[String] = []
-  for node in nodes {
-    parts.push(render_node(node))
-  }
-  parts.join("")
+  nodes.map(render_node).join("")
 }
 
 ///|
@@ -103,11 +99,12 @@ fn push_rendered_lines(
 ) -> Unit {
   for node in nodes {
     let rendered = render_html([node])
-    for line in rendered.split("\n") {
-      if line.length() > 0 {
-        lines.push(indent + line.to_owned())
-      }
-    }
+    lines.push_iter(
+      rendered
+      .split("\n")
+      .filter(line => line.length() > 0)
+      .map(line => indent + line.to_owned()),
+    )
   }
 }
 
@@ -117,15 +114,11 @@ fn render_element(
   attrs : Array[(String, String?)],
   children : Array[SexpNode],
 ) -> String {
-  let parts : Array[String] = ["<", tag]
-  append_rendered_attrs(parts, attrs)
-  parts.push(">")
   if is_void_tag(tag) {
-    return parts.join("")
+    return render_open_tag(tag, attrs)
   }
-  for child in children {
-    parts.push(render_node(child))
-  }
+  let parts : Array[String] = [render_open_tag(tag, attrs)]
+  parts.append(children.map(render_node))
   parts.push("</")
   parts.push(tag)
   parts.push(">")
@@ -173,19 +166,11 @@ fn escape_attribute_value(value : String) -> String {
 
 ///|
 pub fn is_void_tag(tag : String) -> Bool {
-  let lower = tag.to_lower()
-  lower == "area" ||
-  lower == "base" ||
-  lower == "br" ||
-  lower == "col" ||
-  lower == "embed" ||
-  lower == "hr" ||
-  lower == "img" ||
-  lower == "input" ||
-  lower == "link" ||
-  lower == "meta" ||
-  lower == "param" ||
-  lower == "source" ||
-  lower == "track" ||
-  lower == "wbr"
+  html_void_tags.contains(tag.to_lower())
 }
+
+///|
+let html_void_tags : Array[String] = [
+  "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
+  "source", "track", "wbr",
+]

@@ -53,7 +53,7 @@ fn parse_node(
   match cursor.peek() {
     None => Err(cursor.error("unexpected end of input"))
     Some('(') =>
-      parse_list_item(cursor).bind(fn(item) {
+      parse_list_item(cursor).bind(item => {
         match item {
           (Nodes(nodes), next) => Ok((nodes, next))
           (Attr(_, _), _) =>
@@ -70,10 +70,10 @@ fn parse_node(
 
 ///|
 fn parse_list_item(open : Cursor) -> Result[(ParsedListItem, Cursor), String] {
-  match parse_list_head(open) {
-    Ok((head, after_head)) => parse_list_payload(after_head, head)
-    Err(error) => Err(error)
-  }
+  parse_list_head(open).bind(result => {
+    let (head, after_head) = result
+    parse_list_payload(after_head, head)
+  })
 }
 
 ///|
@@ -89,7 +89,7 @@ fn parse_list_head(open : Cursor) -> Result[(ParsedHead, Cursor), String] {
   if head.is_empty() {
     return Err(head_start.error("list head cannot be empty"))
   }
-  classify_head(head, after_head.index).map(fn(parsed_head) {
+  classify_head(head, after_head.index).map(parsed_head => {
     (parsed_head, after_head)
   })
 }
@@ -97,28 +97,45 @@ fn parse_list_head(open : Cursor) -> Result[(ParsedHead, Cursor), String] {
 ///|
 fn classify_head(head : String, after_head : Int) -> Result[ParsedHead, String] {
   if head == "%" {
-    Ok(CommentHead)
-  } else if head == "#" {
-    Ok(RawTextHead)
-  } else if head == "~" {
-    Ok(SpaceHead)
-  } else if head.has_prefix("~") {
-    let tag = head.sub(start=1).to_owned()
-    if tag.is_empty() {
-      Err(error_at(after_head, "empty ~ tag must use the exact form (~)"))
-    } else {
-      Ok(SpacedElementHead(tag))
-    }
-  } else if head.has_prefix(":") {
-    let name = head.sub(start=1).to_owned()
-    if name.is_empty() {
-      Err(error_at(after_head, "attribute name cannot be empty"))
-    } else {
-      Ok(AttributeHead(name))
-    }
-  } else {
-    Ok(ElementHead(head))
+    return Ok(CommentHead)
   }
+  if head == "#" {
+    return Ok(RawTextHead)
+  }
+  if head == "~" {
+    return Ok(SpaceHead)
+  }
+  if head.has_prefix("~") {
+    return classify_spaced_element_head(head, after_head)
+  }
+  if head.has_prefix(":") {
+    return classify_attribute_head(head, after_head)
+  }
+  Ok(ElementHead(head))
+}
+
+///|
+fn classify_spaced_element_head(
+  head : String,
+  after_head : Int,
+) -> Result[ParsedHead, String] {
+  let tag = head.sub(start=1).to_owned()
+  if tag.is_empty() {
+    return Err(error_at(after_head, "empty ~ tag must use the exact form (~)"))
+  }
+  Ok(SpacedElementHead(tag))
+}
+
+///|
+fn classify_attribute_head(
+  head : String,
+  after_head : Int,
+) -> Result[ParsedHead, String] {
+  let name = head.sub(start=1).to_owned()
+  if name.is_empty() {
+    return Err(error_at(after_head, "attribute name cannot be empty"))
+  }
+  Ok(AttributeHead(name))
 }
 
 ///|
@@ -141,7 +158,7 @@ fn parse_comment(
   after_head : Cursor,
 ) -> Result[(ParsedListItem, Cursor), String] {
   let start = after_head.skip_whitespace()
-  capture_comment_text(start).map(fn(result) {
+  capture_comment_text(start).map(result => {
     let (content, next) = result
     (Nodes([(Comment(content), false)]), next)
   })
@@ -151,12 +168,12 @@ fn parse_comment(
 fn parse_raw_text(
   after_head : Cursor,
 ) -> Result[(ParsedListItem, Cursor), String] {
-  let start = if after_head.peek().map_or(false, fn(ch) { ch.is_whitespace() }) {
+  let start = if after_head.peek().map_or(false, ch => ch.is_whitespace()) {
     after_head.advance(1)
   } else {
     after_head
   }
-  capture_raw_text(start).map(fn(result) {
+  capture_raw_text(start).map(result => {
     let (content, next) = result
     (Nodes([(Text(content), false)]), next)
   })
@@ -182,7 +199,7 @@ fn parse_attribute(
     None => Err(after_head.error("unterminated attribute"))
     Some(')') => Ok((Attr(name, None), cursor.advance(1)))
     _ =>
-      capture_attribute_value(cursor).map(fn(result) {
+      capture_attribute_value(cursor).map(result => {
         let (value, next) = result
         (Attr(name, Some(value)), next)
       })
@@ -252,18 +269,19 @@ fn parse_element_list_item(
   attrs : Array[(String, String?)],
   children : Array[(SexpNode, Bool)],
 ) -> Result[Cursor, String] {
-  match parse_list_item(cursor) {
-    Ok((Attr(name, value), next)) => {
-      trim_trailing_text_before_attribute(children)
-      upsert_attribute(attrs, name, value)
-      Ok(next)
+  parse_list_item(cursor).bind(item => {
+    match item {
+      (Attr(name, value), next) => {
+        trim_trailing_text_before_attribute(children)
+        upsert_attr(attrs, name, value)
+        Ok(next)
+      }
+      (Nodes(nodes), next) => {
+        append_internal_nodes(children, nodes)
+        Ok(next)
+      }
     }
-    Ok((Nodes(nodes), next)) => {
-      append_internal_nodes(children, nodes)
-      Ok(next)
-    }
-    Err(error) => Err(error)
-  }
+  })
 }
 
 ///|
@@ -298,13 +316,12 @@ fn parse_text(start : Cursor) -> (String, Cursor) {
   while index < start.length() {
     let ch = start.char_at(index)
     if ch == '\\' {
-      if index + 1 < start.length() {
-        let escaped = start.char_at(index + 1)
-        if escaped == '(' || escaped == ')' {
-          buffer.push(escaped)
-          index = index + 2
+      match consume_escaped_paren(start, index, buffer) {
+        Some(next) => {
+          index = next
           continue
         }
+        None => ()
       }
       buffer.push(ch)
       index = index + 1
@@ -327,13 +344,12 @@ fn capture_comment_text(start : Cursor) -> Result[(String, Cursor), String] {
   while index < start.length() {
     let ch = start.char_at(index)
     if ch == '\\' {
-      if index + 1 < start.length() {
-        let escaped = start.char_at(index + 1)
-        if escaped == '(' || escaped == ')' {
-          buffer.push(escaped)
-          index = index + 2
+      match consume_escaped_paren(start, index, buffer) {
+        Some(next) => {
+          index = next
           continue
         }
+        None => ()
       }
       buffer.push(ch)
       index = index + 1
@@ -367,13 +383,12 @@ fn capture_raw_text(start : Cursor) -> Result[(String, Cursor), String] {
   while index < start.length() {
     let ch = start.char_at(index)
     if ch == '\\' {
-      if index + 1 < start.length() {
-        let escaped = start.char_at(index + 1)
-        if escaped == '(' || escaped == ')' {
-          buffer.push(escaped)
-          index = index + 2
+      match consume_escaped_paren(start, index, buffer) {
+        Some(next) => {
+          index = next
           continue
         }
+        None => ()
       }
       buffer.push(ch)
       index = index + 1
@@ -395,13 +410,12 @@ fn capture_attribute_value(start : Cursor) -> Result[(String, Cursor), String] {
   while index < start.length() {
     let ch = start.char_at(index)
     if ch == '\\' {
-      if index + 1 < start.length() {
-        let escaped = start.char_at(index + 1)
-        if escaped == '(' || escaped == ')' {
-          buffer.push(escaped)
-          index = index + 2
+      match consume_escaped_paren(start, index, buffer) {
+        Some(next) => {
+          index = next
           continue
         }
+        None => ()
       }
       buffer.push(ch)
       index = index + 1
@@ -420,22 +434,20 @@ fn capture_attribute_value(start : Cursor) -> Result[(String, Cursor), String] {
 }
 
 ///|
-fn upsert_attribute(
-  attrs : Array[(String, String?)],
-  name : String,
-  value : String?,
-) -> Unit {
-  let mut index = 0
-  while index < attrs.length() {
-    match attrs[index] {
-      (existing, _) if existing == name => {
-        attrs[index] = (name, value)
-        return
-      }
-      _ => index = index + 1
-    }
+fn consume_escaped_paren(
+  source : Cursor,
+  index : Int,
+  buffer : Array[Char],
+) -> Int? {
+  if index + 1 >= source.length() {
+    return None
   }
-  attrs.push((name, value))
+  let escaped = source.char_at(index + 1)
+  if escaped != '(' && escaped != ')' {
+    return None
+  }
+  buffer.push(escaped)
+  Some(index + 2)
 }
 
 ///|
@@ -443,11 +455,7 @@ fn append_parsed_nodes(
   target : Array[SexpNode],
   nodes : Array[(SexpNode, Bool)],
 ) -> Unit {
-  for parsed_node in nodes {
-    match parsed_node {
-      (node, _) => target.push(node)
-    }
-  }
+  target.append(parsed_node_values(nodes))
 }
 
 ///|
@@ -455,16 +463,15 @@ fn append_internal_nodes(
   target : Array[(SexpNode, Bool)],
   nodes : Array[(SexpNode, Bool)],
 ) -> Unit {
-  for node in nodes {
-    target.push(node)
-  }
+  target.append(nodes)
 }
 
 ///|
 fn parsed_node_values(nodes : Array[(SexpNode, Bool)]) -> Array[SexpNode] {
-  let values : Array[SexpNode] = []
-  append_parsed_nodes(values, nodes)
-  values
+  nodes.map(parsed_node => {
+    let (node, _) = parsed_node
+    node
+  })
 }
 
 ///|
