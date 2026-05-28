@@ -54,7 +54,7 @@ fn Cursor::skip_whitespace(self : Cursor) -> Cursor {
 
 ///|
 fn Cursor::slice_to_string(self : Cursor, end : Int) -> String {
-  String::from_array(self.chars.view(start=self.index, end=end))
+  String::from_array(self.chars.view(start=self.index, end~))
 }
 
 ///|

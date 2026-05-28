@@ -1,11 +1,20 @@
 ///|
-pub fn sexp_to_html(source : String) -> Result[String, String] {
-  parse_sexp_html(source).map(render_html)
+const NODE_RENDER_SEPARATOR = ""
+
+///|
+pub fn sexp_to_html(
+  source : String,
+  separator? : String = NODE_RENDER_SEPARATOR,
+) -> Result[String, String] {
+  parse_sexp_html(source).map(nodes => render_html(nodes, separator~))
 }
 
 ///|
-pub fn render_html(nodes : Array[SexpNode]) -> String {
-  nodes.map(render_node).join("")
+pub fn render_html(
+  nodes : Array[SexpNode],
+  separator? : String = NODE_RENDER_SEPARATOR,
+) -> String {
+  nodes.map(render_node).join(separator)
 }
 
 ///|
