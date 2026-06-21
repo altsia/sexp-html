@@ -124,7 +124,7 @@ test "public AST transform can rewrite parsed elements" {
   match parse_sexp_html("(p (icon search))") {
     Err(error) => fail(error)
     Ok(nodes) => {
-      let transformed = transform_icon_test_nodes(nodes)
+      let transformed = nodes.map(transform_icon_test_node)
       @test.assert_eq(
         render_html(transformed),
         "<p><span class=\"icon\">search</span></p>",
@@ -242,12 +242,8 @@ test "empty html attr values canonicalize to minimized attrs" {
 }
 
 ///|
-fn transform_icon_test_nodes(nodes : Array[SexpNode]) -> Array[SexpNode] {
-  let transformed : Array[SexpNode] = []
-  for node in nodes {
-    transformed.push(transform_icon_test_node(node))
-  }
-  transformed
+test "parser preserves non-BMP characters" {
+  @test.assert_eq(sexp_to_html("(p hi😀there)"), Ok("<p>hi😀there</p>"))
 }
 
 ///|
@@ -257,12 +253,10 @@ fn transform_icon_test_node(node : SexpNode) -> SexpNode {
       SexpNode::Element(
         "span",
         [("class", Some("icon"))],
-        transform_icon_test_nodes(children),
+        children.map(transform_icon_test_node),
       )
     Element(tag, attrs, children) =>
-      SexpNode::Element(tag, attrs, transform_icon_test_nodes(children))
+      SexpNode::Element(tag, attrs, children.map(transform_icon_test_node))
     _ => node
   }
 }
-
-///|

@@ -24,7 +24,7 @@ priv enum ParsedHead {
 
 ///|
 pub fn parse_sexp_html(source : String) -> Result[Array[SexpNode], String] {
-  parse_document(Cursor::new(source.to_array(), 0))
+  parse_document(Cursor::new(source))
 }
 
 ///|
@@ -300,11 +300,11 @@ fn parse_element_text(
 fn parse_head(start : Cursor) -> (String, Cursor) {
   let mut index = start.index
   while index < start.length() {
-    let ch = start.char_at(index)
+    let ch = start.unsafe_char_at(index)
     if ch == '(' || ch == ')' || ch.is_whitespace() {
       break
     }
-    index = index + 1
+    index = start.next_index(index)
   }
   (start.slice_to_string(index), start.at(index))
 }
@@ -314,7 +314,7 @@ fn parse_text(start : Cursor) -> (String, Cursor) {
   let buffer : Array[Char] = []
   let mut index = start.index
   while index < start.length() {
-    let ch = start.char_at(index)
+    let ch = start.unsafe_char_at(index)
     if ch == '\\' {
       match consume_escaped_paren(start, index, buffer) {
         Some(next) => {
@@ -324,14 +324,14 @@ fn parse_text(start : Cursor) -> (String, Cursor) {
         None => ()
       }
       buffer.push(ch)
-      index = index + 1
+      index = start.next_index(index)
       continue
     }
     if ch == '(' || ch == ')' {
       break
     }
     buffer.push(ch)
-    index = index + 1
+    index = start.next_index(index)
   }
   (String::from_array(buffer.view()), start.at(index))
 }
@@ -342,7 +342,7 @@ fn capture_comment_text(start : Cursor) -> Result[(String, Cursor), String] {
   let mut index = start.index
   let mut depth = 0
   while index < start.length() {
-    let ch = start.char_at(index)
+    let ch = start.unsafe_char_at(index)
     if ch == '\\' {
       match consume_escaped_paren(start, index, buffer) {
         Some(next) => {
@@ -352,13 +352,13 @@ fn capture_comment_text(start : Cursor) -> Result[(String, Cursor), String] {
         None => ()
       }
       buffer.push(ch)
-      index = index + 1
+      index = start.next_index(index)
       continue
     }
     if ch == '(' {
       depth = depth + 1
       buffer.push(ch)
-      index = index + 1
+      index = start.next_index(index)
       continue
     }
     if ch == ')' {
@@ -367,11 +367,11 @@ fn capture_comment_text(start : Cursor) -> Result[(String, Cursor), String] {
       }
       depth = depth - 1
       buffer.push(ch)
-      index = index + 1
+      index = start.next_index(index)
       continue
     }
     buffer.push(ch)
-    index = index + 1
+    index = start.next_index(index)
   }
   Err(start.error("unterminated comment"))
 }
@@ -381,7 +381,7 @@ fn capture_raw_text(start : Cursor) -> Result[(String, Cursor), String] {
   let buffer : Array[Char] = []
   let mut index = start.index
   while index < start.length() {
-    let ch = start.char_at(index)
+    let ch = start.unsafe_char_at(index)
     if ch == '\\' {
       match consume_escaped_paren(start, index, buffer) {
         Some(next) => {
@@ -391,14 +391,14 @@ fn capture_raw_text(start : Cursor) -> Result[(String, Cursor), String] {
         None => ()
       }
       buffer.push(ch)
-      index = index + 1
+      index = start.next_index(index)
       continue
     }
     if ch == ')' {
       return Ok((String::from_array(buffer.view()), start.at(index + 1)))
     }
     buffer.push(ch)
-    index = index + 1
+    index = start.next_index(index)
   }
   Err(start.error("unterminated (# ...) text node"))
 }
@@ -408,7 +408,7 @@ fn capture_attribute_value(start : Cursor) -> Result[(String, Cursor), String] {
   let buffer : Array[Char] = []
   let mut index = start.index
   while index < start.length() {
-    let ch = start.char_at(index)
+    let ch = start.unsafe_char_at(index)
     if ch == '\\' {
       match consume_escaped_paren(start, index, buffer) {
         Some(next) => {
@@ -418,7 +418,7 @@ fn capture_attribute_value(start : Cursor) -> Result[(String, Cursor), String] {
         None => ()
       }
       buffer.push(ch)
-      index = index + 1
+      index = start.next_index(index)
       continue
     }
     if ch == '(' {
@@ -428,7 +428,7 @@ fn capture_attribute_value(start : Cursor) -> Result[(String, Cursor), String] {
       return Ok((String::from_array(buffer.view()), start.at(index + 1)))
     }
     buffer.push(ch)
-    index = index + 1
+    index = start.next_index(index)
   }
   Err(start.error("unterminated attribute"))
 }
@@ -442,7 +442,7 @@ fn consume_escaped_paren(
   if index + 1 >= source.length() {
     return None
   }
-  let escaped = source.char_at(index + 1)
+  let escaped = source.unsafe_char_at(index + 1)
   if escaped != '(' && escaped != ')' {
     return None
   }
@@ -493,9 +493,4 @@ fn trim_trailing_text_before_attribute(
     }
     _ => ()
   }
-}
-
-///|
-fn error_at(index : Int, message : String) -> String {
-  "parse error at offset " + index.to_string() + ": " + message
 }

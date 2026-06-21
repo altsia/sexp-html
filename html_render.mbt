@@ -45,10 +45,11 @@ pub fn render_open_tag(
   tag : String,
   attrs : Array[(String, String?)],
 ) -> String {
-  let parts : Array[String] = ["<", tag]
-  append_rendered_attrs(parts, attrs)
-  parts.push(">")
-  parts.join("")
+  let builder = StringBuilder()
+  builder <+ "< \{tag}"
+  append_rendered_attrs(builder, attrs)
+  builder <+ ">"
+  builder.to_string()
 }
 
 ///|
@@ -123,35 +124,28 @@ fn render_element(
   attrs : Array[(String, String?)],
   children : Array[SexpNode],
 ) -> String {
-  if is_void_tag(tag) {
-    return render_open_tag(tag, attrs)
+  guard !is_void_tag(tag) else { return render_open_tag(tag, attrs) }
+  let builder = StringBuilder()
+  builder.write_string(render_open_tag(tag, attrs))
+  for child in children {
+    builder.write_string(render_node(child))
   }
-  let parts : Array[String] = [render_open_tag(tag, attrs)]
-  parts.append(children.map(render_node))
-  parts.push("</")
-  parts.push(tag)
-  parts.push(">")
-  parts.join("")
+  builder <+ "</"
+  builder.write_string(tag)
+  builder <+ ">"
+  builder.to_string()
 }
 
 ///|
 fn append_rendered_attrs(
-  parts : Array[String],
+  builder : StringBuilder,
   attrs : Array[(String, String?)],
 ) -> Unit {
   for attr in attrs {
     match attr {
-      (name, None) => {
-        parts.push(" ")
-        parts.push(name)
-      }
-      (name, Some(value)) => {
-        parts.push(" ")
-        parts.push(name)
-        parts.push("=\"")
-        parts.push(escape_attribute_value(value))
-        parts.push("\"")
-      }
+      (name, None) => builder.write_string(name)
+      (name, Some(value)) =>
+        builder <+ " \{name}=\"\{escape_attribute_value(value)}\""
     }
   }
 }
