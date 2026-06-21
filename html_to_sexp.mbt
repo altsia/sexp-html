@@ -6,9 +6,8 @@ pub fn html_to_sexp(source : String) -> Result[String, String] {
 
 ///|
 fn render_html_fragment(document : @html5.Document) -> Result[String, String] {
-  render_html_fragment_terms(document, document.get_children(0)).map(terms => {
-    terms.join("\n")
-  })
+  let node_ids = document.get_children(0)
+  render_html_fragment_terms(document, node_ids).map(terms => terms.join("\n"))
 }
 
 ///|
@@ -28,7 +27,7 @@ fn render_html_fragment_node_terms(
   if node_id == document.document_element {
     return render_html_document_element_terms(document, node_id)
   }
-  render_html_node(document, node_id).map(optional_term_to_terms)
+  render_html_node(document, node_id).map(x => x.map_or([], xs => [xs]))
 }
 
 ///|
@@ -40,15 +39,10 @@ fn render_html_document_element_terms(
     Some(@html5.ElementNode(element)) => {
       let terms : Array[String] = []
       for child_id in element.children {
-        match
-          append_html_fragment_terms(
-            document,
-            terms,
-            html_document_fragment_child_ids(document, child_id),
-          ) {
-          Ok(_) => ()
-          Err(error) => return Err(error)
-        }
+        let node_ids = html_document_fragment_child_ids(document, child_id)
+        let result = append_html_fragment_terms(document, terms, node_ids)
+        guard result is Err(error) else {  }
+        return Err(error)
       }
       Ok(terms)
     }
@@ -119,12 +113,8 @@ fn render_html_text_term(text : String) -> Result[String?, String] {
 
 ///|
 fn render_html_comment_term(text : String) -> String {
-  let normalized = if text.is_blank() { "" } else { text.trim().to_owned() }
-  if normalized.is_empty() {
-    "(% )"
-  } else {
-    "(% " + escape_sexp_text(normalized) + ")"
-  }
+  guard !text.is_blank() else { "" }
+  "(% \{escape_sexp_text(text)})"
 }
 
 ///|
@@ -240,14 +230,6 @@ fn starts_with_whitespace(text : String) -> Bool {
 ///|
 fn render_raw_text_form(text : String) -> String {
   "(# " + escape_sexp_text(text) + ")"
-}
-
-///|
-fn optional_term_to_terms(term : String?) -> Array[String] {
-  match term {
-    Some(term) => [term]
-    None => []
-  }
 }
 
 ///|

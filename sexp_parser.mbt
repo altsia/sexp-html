@@ -96,22 +96,14 @@ fn parse_list_head(open : Cursor) -> Result[(ParsedHead, Cursor), String] {
 
 ///|
 fn classify_head(head : String, after_head : Int) -> Result[ParsedHead, String] {
-  if head == "%" {
-    return Ok(CommentHead)
+  match head {
+    "%" => Ok(CommentHead)
+    "#" => Ok(RawTextHead)
+    "~" => Ok(SpaceHead)
+    _ if head.has_prefix("~") => classify_spaced_element_head(head, after_head)
+    _ if head.has_prefix(":") => classify_attribute_head(head, after_head)
+    _ => Ok(ElementHead(head))
   }
-  if head == "#" {
-    return Ok(RawTextHead)
-  }
-  if head == "~" {
-    return Ok(SpaceHead)
-  }
-  if head.has_prefix("~") {
-    return classify_spaced_element_head(head, after_head)
-  }
-  if head.has_prefix(":") {
-    return classify_attribute_head(head, after_head)
-  }
-  Ok(ElementHead(head))
 }
 
 ///|

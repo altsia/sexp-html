@@ -19,25 +19,22 @@ pub fn render_html(
 
 ///|
 pub fn render_html_document(
-  attrs : Array[(String, String?)],
+  html_attrs : Array[(String, String?)],
   head : Array[SexpNode],
   body : Array[SexpNode],
   doctype : String?,
 ) -> String {
-  let lines : Array[String] = []
-  match doctype {
-    Some(value) => lines.push("<!DOCTYPE \{value}>")
-    None => ()
+  let builder = StringBuilder()
+  if doctype is Some(value) {
+    builder <+ "<!DOCTYPE \{value}>\n"
   }
-  lines.push(render_open_tag("html", attrs))
-  lines.push("  <head>")
-  push_rendered_lines(lines, head, "    ")
-  lines.push("  </head>")
-  lines.push("  <body>")
-  push_rendered_lines(lines, body, "    ")
-  lines.push("  </body>")
-  lines.push("</html>")
-  lines.join("\n")
+  builder.write_string(render_open_tag("html", html_attrs))
+  builder <+ "\n  <head>"
+  push_rendered_lines(builder, head, "    ")
+  builder <+ "\n  </head>\n  <body>"
+  push_rendered_lines(builder, body, "    ")
+  builder <+ "\n  </body>\n</html>"
+  builder.to_string()
 }
 
 ///|
@@ -59,12 +56,9 @@ pub fn upsert_attr(
   value : String?,
 ) -> Unit {
   for i in 0..<attrs.length() {
-    match attrs[i] {
-      (existing, _) if existing == name => {
-        attrs[i] = (name, value)
-        return
-      }
-      _ => ()
+    if attrs[i] is (existing, _) && existing == name {
+      attrs[i] = (name, value)
+      return
     }
   }
   attrs.push((name, value))
@@ -76,16 +70,13 @@ pub fn append_class(
   class_name : String,
 ) -> Unit {
   for i in 0..<attrs.length() {
-    match attrs[i] {
-      ("class", Some(value)) => {
-        attrs[i] = ("class", Some(value + " " + class_name))
-        return
-      }
-      ("class", None) => {
-        attrs[i] = ("class", Some(class_name))
-        return
-      }
-      _ => ()
+    if attrs[i] is ("class", Some(value)) {
+      attrs[i] = ("class", Some(value + " " + class_name))
+      return
+    }
+    if attrs[i] is ("class", None) {
+      attrs[i] = ("class", Some(class_name))
+      return
     }
   }
   attrs.push(("class", Some(class_name)))
@@ -94,7 +85,7 @@ pub fn append_class(
 ///|
 fn render_node(node : SexpNode) -> String {
   match node {
-    Text(text) => escape_text(text)
+    Text(text) => html_escape_text(text)
     Comment(text) => "<!-- " + text + " -->"
     RawHtml(html) => html
     Element(tag, attrs, children) => render_element(tag, attrs, children)
@@ -103,18 +94,17 @@ fn render_node(node : SexpNode) -> String {
 
 ///|
 fn push_rendered_lines(
-  lines : Array[String],
+  builder : StringBuilder,
   nodes : Array[SexpNode],
   indent : String,
 ) -> Unit {
   for node in nodes {
     let rendered = render_html([node])
-    lines.push_iter(
-      rendered
-      .split("\n")
-      .filter(line => line.length() > 0)
-      .map(line => indent + line.to_owned()),
-    )
+    for line in rendered.split("\n") {
+      if line.length() > 0 {
+        builder <+ "\n\{indent}\{line}"
+      }
+    }
   }
 }
 
@@ -145,26 +135,9 @@ fn append_rendered_attrs(
     match attr {
       (name, None) => builder.write_string(name)
       (name, Some(value)) =>
-        builder <+ " \{name}=\"\{escape_attribute_value(value)}\""
+        builder <+ " \{name}=\"\{html_escape_attribute_value(value)}\""
     }
   }
-}
-
-///|
-fn escape_text(text : String) -> String {
-  text
-  .replace_all(old="&", new="&amp;")
-  .replace_all(old="<", new="&lt;")
-  .replace_all(old=">", new="&gt;")
-}
-
-///|
-fn escape_attribute_value(value : String) -> String {
-  value
-  .replace_all(old="&", new="&amp;")
-  .replace_all(old="<", new="&lt;")
-  .replace_all(old=">", new="&gt;")
-  .replace_all(old="\"", new="&quot;")
 }
 
 ///|
