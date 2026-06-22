@@ -254,24 +254,30 @@ fn join_non_empty_terms(terms : Array[String]) -> String? {
 fn escape_sexp_text(text : String) -> String {
   let chars = text.to_array()
   let builder = StringBuilder::new()
-  let mut index = 0
-  while index < chars.length() {
+  for index in 0..<chars.length() {
     let ch = chars[index]
-    if ch == '\\' {
-      if index + 1 < chars.length() {
-        let next = chars[index + 1]
-        if next == '(' || next == ')' {
-          builder.write_char('\\')
-        }
-      }
-      builder.write_char(ch)
-    } else if ch == '(' || ch == ')' {
+    if starts_existing_sexp_paren_escape(chars, index) {
       builder.write_char('\\')
-      builder.write_char(ch)
-    } else {
-      builder.write_char(ch)
     }
-    index = index + 1
+    if is_sexp_paren(ch) {
+      builder.write_char('\\')
+    }
+    builder.write_char(ch)
   }
   builder.to_string()
+}
+
+///|
+/// Returns true when the current backslash is already escaping a paren in the
+/// input text and must itself be preserved in the serialized form.
+fn starts_existing_sexp_paren_escape(chars : Array[Char], index : Int) -> Bool {
+  guard chars[index] == '\\' else { return false }
+  guard index + 1 < chars.length() else { return false }
+  is_sexp_paren(chars[index + 1])
+}
+
+///|
+/// Returns true for S-expression text boundary characters.
+fn is_sexp_paren(ch : Char) -> Bool {
+  ch == '(' || ch == ')'
 }
