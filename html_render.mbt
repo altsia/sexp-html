@@ -1,3 +1,4 @@
+///|
 pub(all) struct HtmlAttrs(Array[(String, String?)])
 
 ///|
@@ -40,10 +41,7 @@ pub fn render_html_document(
 }
 
 ///|
-pub fn render_open_tag(
-  tag : String,
-  attrs : HtmlAttrs,
-) -> String {
+pub fn render_open_tag(tag : String, attrs : HtmlAttrs) -> String {
   let builder = StringBuilder()
   builder <+ "<\{tag}"
   append_serialized_attrs(builder, attrs)
@@ -68,10 +66,7 @@ pub fn HtmlAttrs::upsert(
 }
 
 ///|
-pub fn HtmlAttrs::append_class(
-  self : HtmlAttrs,
-  class_name : String,
-) -> Unit {
+pub fn HtmlAttrs::append_class(self : HtmlAttrs, class_name : String) -> Unit {
   let attrs = self.0
   for i in 0..<attrs.length() {
     if attrs[i] is ("class", Some(value)) {
@@ -131,13 +126,10 @@ fn render_element(
 }
 
 ///|
-fn append_serialized_attrs(
-  builder : StringBuilder,
-  attrs : HtmlAttrs,
-) -> Unit {
+fn append_serialized_attrs(builder : StringBuilder, attrs : HtmlAttrs) -> Unit {
   for attr in attrs.0 {
     match attr {
-      (name, None) => builder.write_string(name)
+      (name, None) => builder <+ " \{name}"
       (name, Some(value)) =>
         builder <+ " \{name}=\"\{escape_html_attr_value(value)}\""
     }

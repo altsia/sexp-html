@@ -113,8 +113,8 @@ fn render_text_as_sexp_term(text : String) -> Result[String?, String] {
 
 ///|
 fn render_comment_as_sexp_term(text : String) -> String {
-  guard !text.is_blank() else { "" }
-  "(% \{escape_sexp_text(text)})"
+  let trimmed = text.trim().to_owned()
+  "(% \{escape_sexp_text(trimmed)})"
 }
 
 ///|
