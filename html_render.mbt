@@ -1,3 +1,5 @@
+pub(all) struct HtmlAttrs(Array[(String, String?)])
+
 ///|
 const NODE_RENDER_SEPARATOR = ""
 
@@ -6,15 +8,15 @@ pub fn sexp_to_html(
   source : String,
   separator? : String = NODE_RENDER_SEPARATOR,
 ) -> Result[String, String] {
-  parse_sexp_html(source).map(nodes => render_html(nodes, separator~))
+  parse_sexp_html(source).map(nodes => render_html_fragment(nodes, separator~))
 }
 
 ///|
-pub fn render_html(
+pub fn render_html_fragment(
   nodes : Array[SexpNode],
   separator? : String = NODE_RENDER_SEPARATOR,
 ) -> String {
-  nodes.map(render_node).join(separator)
+  nodes.map(SexpNode::render_html).join(separator)
 }
 
 ///|
@@ -40,21 +42,22 @@ pub fn render_html_document(
 ///|
 pub fn render_open_tag(
   tag : String,
-  attrs : Array[(String, String?)],
+  attrs : HtmlAttrs,
 ) -> String {
   let builder = StringBuilder()
-  builder <+ "< \{tag}"
-  append_rendered_attrs(builder, attrs)
+  builder <+ "<\{tag}"
+  append_serialized_attrs(builder, attrs)
   builder <+ ">"
   builder.to_string()
 }
 
 ///|
-pub fn upsert_attr(
-  attrs : Array[(String, String?)],
+pub fn HtmlAttrs::upsert(
+  attrs : HtmlAttrs,
   name : String,
   value : String?,
 ) -> Unit {
+  let attrs = attrs.0
   for i in 0..<attrs.length() {
     if attrs[i] is (existing, _) && existing == name {
       attrs[i] = (name, value)
@@ -65,10 +68,11 @@ pub fn upsert_attr(
 }
 
 ///|
-pub fn append_class(
-  attrs : Array[(String, String?)],
+pub fn HtmlAttrs::append_class(
+  self : HtmlAttrs,
   class_name : String,
 ) -> Unit {
+  let attrs = self.0
   for i in 0..<attrs.length() {
     if attrs[i] is ("class", Some(value)) {
       attrs[i] = ("class", Some(value + " " + class_name))
@@ -83,9 +87,9 @@ pub fn append_class(
 }
 
 ///|
-fn render_node(node : SexpNode) -> String {
-  match node {
-    Text(text) => html_escape_text(text)
+fn SexpNode::render_html(self : SexpNode) -> String {
+  match self {
+    Text(text) => escape_html_text(text)
     Comment(text) => "<!-- " + text + " -->"
     RawHtml(html) => html
     Element(tag, attrs, children) => render_element(tag, attrs, children)
@@ -99,7 +103,7 @@ fn push_rendered_lines(
   indent : String,
 ) -> Unit {
   for node in nodes {
-    let rendered = render_html([node])
+    let rendered = render_html_fragment([node])
     for line in rendered.split("\n") {
       if line.length() > 0 {
         builder <+ "\n\{indent}\{line}"
@@ -111,14 +115,14 @@ fn push_rendered_lines(
 ///|
 fn render_element(
   tag : String,
-  attrs : Array[(String, String?)],
+  attrs : HtmlAttrs,
   children : Array[SexpNode],
 ) -> String {
-  guard !is_void_tag(tag) else { return render_open_tag(tag, attrs) }
+  guard !is_void_element_name(tag) else { return render_open_tag(tag, attrs.0) }
   let builder = StringBuilder()
-  builder.write_string(render_open_tag(tag, attrs))
+  builder.write_string(render_open_tag(tag, attrs.0))
   for child in children {
-    builder.write_string(render_node(child))
+    builder.write_string(child.render_html())
   }
   builder <+ "</"
   builder.write_string(tag)
@@ -127,26 +131,26 @@ fn render_element(
 }
 
 ///|
-fn append_rendered_attrs(
+fn append_serialized_attrs(
   builder : StringBuilder,
-  attrs : Array[(String, String?)],
+  attrs : HtmlAttrs,
 ) -> Unit {
-  for attr in attrs {
+  for attr in attrs.0 {
     match attr {
       (name, None) => builder.write_string(name)
       (name, Some(value)) =>
-        builder <+ " \{name}=\"\{html_escape_attribute_value(value)}\""
+        builder <+ " \{name}=\"\{escape_html_attr_value(value)}\""
     }
   }
 }
 
 ///|
-pub fn is_void_tag(tag : String) -> Bool {
-  html_void_tags.contains(tag.to_lower())
+pub fn is_void_element_name(tag : String) -> Bool {
+  html_void_element_names.contains(tag.to_lower())
 }
 
 ///|
-let html_void_tags : Array[String] = [
+let html_void_element_names : Array[String] = [
   "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
   "source", "track", "wbr",
 ]

@@ -21,7 +21,7 @@ fn Cursor::peek(self : Cursor) -> Char? {
 }
 
 ///|
-fn Cursor::length(self : Cursor) -> Int {
+fn Cursor::code_unit_length(self : Cursor) -> Int {
   self.source.length()
 }
 
@@ -31,35 +31,35 @@ fn Cursor::unsafe_char_at(self : Cursor, index : Int) -> Char {
 }
 
 ///|
-fn Cursor::next_index(self : Cursor, index : Int) -> Int {
+fn Cursor::next_char_index(self : Cursor, index : Int) -> Int {
   match () {
-    _ if index >= self.length() => index
+    _ if index >= self.code_unit_length() => index
     _ if self.source.code_unit_at(index).is_leading_surrogate() => index + 2
     _ => index + 1
   }
 }
 
 ///|
-fn Cursor::advance(self : Cursor, amount : Int) -> Cursor {
+fn Cursor::advance_code_units(self : Cursor, amount : Int) -> Cursor {
   { source: self.source, index: self.index + amount }
 }
 
 ///|
-fn Cursor::at(self : Cursor, index : Int) -> Cursor {
+fn Cursor::with_index(self : Cursor, index : Int) -> Cursor {
   { source: self.source, index }
 }
 
 ///|
 fn Cursor::skip_whitespace(self : Cursor) -> Cursor {
   let mut index = self.index
-  while index < self.length() && self.unsafe_char_at(index).is_whitespace() {
-    index = self.next_index(index)
+  while index < self.code_unit_length() && self.unsafe_char_at(index).is_whitespace() {
+    index = self.next_char_index(index)
   }
-  self.at(index)
+  self.with_index(index)
 }
 
 ///|
-fn Cursor::slice_to_string(self : Cursor, end : Int) -> String {
+fn Cursor::slice_until(self : Cursor, end : Int) -> String {
   self.source.sub(start=self.index, end~).to_owned()
 }
 

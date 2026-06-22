@@ -1,6 +1,6 @@
 name = "kokic/sexp-html"
 
-version = "0.2.2"
+version = "0.3.0"
 
 import {
   "Milky2018/html@0.1.2",

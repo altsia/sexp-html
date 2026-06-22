@@ -1,37 +1,37 @@
 ///|
 pub fn html_to_sexp(source : String) -> Result[String, String] {
   let document = @html5.parse(source)
-  render_html_fragment(document)
+  serialize_sexp_fragment(document)
 }
 
 ///|
-fn render_html_fragment(document : @html5.Document) -> Result[String, String] {
+fn serialize_sexp_fragment(document : @html5.Document) -> Result[String, String] {
   let node_ids = document.get_children(0)
-  render_html_fragment_terms(document, node_ids).map(terms => terms.join("\n"))
+  render_sexp_fragment_terms(document, node_ids).map(terms => terms.join("\n"))
 }
 
 ///|
-fn render_html_fragment_terms(
+fn render_sexp_fragment_terms(
   document : @html5.Document,
   node_ids : Array[Int],
 ) -> Result[Array[String], String] {
   let terms : Array[String] = []
-  append_html_fragment_terms(document, terms, node_ids).map(_ => terms)
+  append_sexp_fragment_terms(document, terms, node_ids).map(_ => terms)
 }
 
 ///|
-fn render_html_fragment_node_terms(
+fn render_node_as_sexp_terms(
   document : @html5.Document,
   node_id : Int,
 ) -> Result[Array[String], String] {
   if node_id == document.document_element {
-    return render_html_document_element_terms(document, node_id)
+    return render_document_element_as_fragment_terms(document, node_id)
   }
-  render_html_node(document, node_id).map(x => x.map_or([], xs => [xs]))
+  render_node_as_sexp_term(document, node_id).map(x => x.map_or([], xs => [xs]))
 }
 
 ///|
-fn render_html_document_element_terms(
+fn render_document_element_as_fragment_terms(
   document : @html5.Document,
   node_id : Int,
 ) -> Result[Array[String], String] {
@@ -40,7 +40,7 @@ fn render_html_document_element_terms(
       let terms : Array[String] = []
       for child_id in element.children {
         let node_ids = html_document_fragment_child_ids(document, child_id)
-        let result = append_html_fragment_terms(document, terms, node_ids)
+        let result = append_sexp_fragment_terms(document, terms, node_ids)
         guard result is Err(error) else {  }
         return Err(error)
       }
@@ -51,13 +51,13 @@ fn render_html_document_element_terms(
 }
 
 ///|
-fn append_html_fragment_terms(
+fn append_sexp_fragment_terms(
   document : @html5.Document,
   terms : Array[String],
   node_ids : Array[Int],
 ) -> Result[Unit, String] {
   for node_id in node_ids {
-    match render_html_fragment_node_terms(document, node_id) {
+    match render_node_as_sexp_terms(document, node_id) {
       Ok(node_terms) => append_terms(terms, node_terms)
       Err(error) => return Err(error)
     }
@@ -78,33 +78,33 @@ fn html_document_fragment_child_ids(
 }
 
 ///|
-fn render_html_node(
+fn render_node_as_sexp_term(
   document : @html5.Document,
   node_id : Int,
 ) -> Result[String?, String] {
   match document.get_node(node_id) {
-    Some(@html5.TextNode(text)) => render_html_text_term(text)
-    Some(@html5.CommentNode(text)) => Ok(Some(render_html_comment_term(text)))
+    Some(@html5.TextNode(text)) => render_text_as_sexp_term(text)
+    Some(@html5.CommentNode(text)) => Ok(Some(render_comment_as_sexp_term(text)))
     Some(@html5.ElementNode(element)) =>
-      render_html_element_term(document, node_id, element)
+      render_element_as_sexp_term(document, node_id, element)
     Some(@html5.DocumentTypeNode(..)) => Ok(None)
     Some(@html5.DocumentNode(children~))
     | Some(@html5.DocumentFragmentNode(children~)) =>
-      render_html_node_list(document, children)
+      render_nodes_as_sexp_term(document, children)
     None => Err("internal error: missing html node #" + node_id.to_string())
   }
 }
 
 ///|
-fn render_html_node_list(
+fn render_nodes_as_sexp_term(
   document : @html5.Document,
   node_ids : Array[Int],
 ) -> Result[String?, String] {
-  collect_rendered_html_terms(document, node_ids).map(join_non_empty_terms)
+  collect_sexp_terms(document, node_ids).map(join_non_empty_terms)
 }
 
 ///|
-fn render_html_text_term(text : String) -> Result[String?, String] {
+fn render_text_as_sexp_term(text : String) -> Result[String?, String] {
   if !text.is_empty() && !starts_with_whitespace(text) {
     return Ok(Some(escape_sexp_text(text)))
   }
@@ -112,13 +112,13 @@ fn render_html_text_term(text : String) -> Result[String?, String] {
 }
 
 ///|
-fn render_html_comment_term(text : String) -> String {
+fn render_comment_as_sexp_term(text : String) -> String {
   guard !text.is_blank() else { "" }
   "(% \{escape_sexp_text(text)})"
 }
 
 ///|
-fn render_html_element_term(
+fn render_element_as_sexp_term(
   document : @html5.Document,
   node_id : Int,
   element : @html5.Element,
@@ -126,12 +126,12 @@ fn render_html_element_term(
   let builder = StringBuilder::new()
   builder.write_char('(')
   builder.write_string(element.tag_name)
-  match append_rendered_html_attributes(builder, element.attributes) {
+  match append_sexp_attribute_forms(builder, element.attributes) {
     Ok(_) => ()
     Err(error) => return Err(error)
   }
   match
-    append_rendered_child_terms(
+    append_child_sexp_terms(
       builder,
       document,
       html_element_child_ids(document, node_id, element),
@@ -144,14 +144,14 @@ fn render_html_element_term(
 }
 
 ///|
-fn append_rendered_html_attributes(
+fn append_sexp_attribute_forms(
   builder : StringBuilder,
   attrs : Array[(String, String)],
 ) -> Result[Unit, String] {
   for attr in attrs {
     let (name, value) = attr
     builder.write_char(' ')
-    match render_html_attribute(name, value) {
+    match render_attribute_as_sexp_form(name, value) {
       Ok(attr_term) => builder.write_string(attr_term)
       Err(error) => return Err(error)
     }
@@ -160,12 +160,12 @@ fn append_rendered_html_attributes(
 }
 
 ///|
-fn append_rendered_child_terms(
+fn append_child_sexp_terms(
   builder : StringBuilder,
   document : @html5.Document,
   node_ids : Array[Int],
 ) -> Result[Unit, String] {
-  collect_rendered_html_terms(document, node_ids).map(child_terms => {
+  collect_sexp_terms(document, node_ids).map(child_terms => {
     for term in child_terms {
       builder.write_char(' ')
       builder.write_string(term)
@@ -186,7 +186,7 @@ fn html_element_child_ids(
 }
 
 ///|
-fn render_html_attribute(
+fn render_attribute_as_sexp_form(
   name : String,
   value : String,
 ) -> Result[String, String] {
@@ -202,13 +202,13 @@ fn render_html_attribute(
 }
 
 ///|
-fn collect_rendered_html_terms(
+fn collect_sexp_terms(
   document : @html5.Document,
   node_ids : Array[Int],
 ) -> Result[Array[String], String] {
   let terms : Array[String] = []
   for node_id in node_ids {
-    match render_html_node(document, node_id) {
+    match render_node_as_sexp_term(document, node_id) {
       Ok(Some(term)) => terms.push(term)
       Ok(None) => ()
       Err(error) => return Err(error)

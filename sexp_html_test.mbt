@@ -116,7 +116,7 @@ test "public AST can be rendered directly" {
       SexpNode::Element("strong", [], [SexpNode::Text("AST")]),
     ]),
   ]
-  @test.assert_eq(render_html(nodes), "<p>Hello <strong>AST</strong></p>")
+  @test.assert_eq(render_html_fragment(nodes), "<p>Hello <strong>AST</strong></p>")
 }
 
 ///|
@@ -126,7 +126,7 @@ test "public AST transform can rewrite parsed elements" {
     Ok(nodes) => {
       let transformed = nodes.map(transform_icon_test_node)
       @test.assert_eq(
-        render_html(transformed),
+        render_html_fragment(transformed),
         "<p><span class=\"icon\">search</span></p>",
       )
     }
@@ -141,7 +141,7 @@ test "raw html node renders trusted html without escaping" {
       SexpNode::RawHtml("<em>trusted</em>"),
     ]),
   ]
-  @test.assert_eq(render_html(nodes), "<p>&lt;escaped&gt; <em>trusted</em></p>")
+  @test.assert_eq(render_html_fragment(nodes), "<p>&lt;escaped&gt; <em>trusted</em></p>")
 }
 
 ///|
@@ -167,11 +167,11 @@ test "document renderer emits doctype and pretty html shell" {
 
 ///|
 test "open tag and attr helpers" {
-  let attrs : Array[(String, String?)] = []
-  upsert_attr(attrs, "class", Some("note"))
-  append_class(attrs, "warning")
-  upsert_attr(attrs, "id", Some("main"))
-  upsert_attr(attrs, "id", Some("updated"))
+  let attrs : HtmlAttrs = HtmlAttrs([])
+  attrs.upsert("class", Some("note"))
+  attrs.append_class("warning")
+  attrs.upsert("id", Some("main"))
+  attrs.upsert("id", Some("updated"))
   @test.assert_eq(
     render_open_tag("section", attrs),
     "<section class=\"note warning\" id=\"updated\">",

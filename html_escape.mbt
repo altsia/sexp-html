@@ -1,5 +1,5 @@
 ///|
-pub fn html_escape_text(text : String) -> String {
+pub fn escape_html_text(text : String) -> String {
   text
   .replace_all(old="&", new="&amp;")
   .replace_all(old="<", new="&lt;")
@@ -7,7 +7,7 @@ pub fn html_escape_text(text : String) -> String {
 }
 
 ///|
-pub fn html_escape_attribute_value(value : String) -> String {
+pub fn escape_html_attr_value(value : String) -> String {
   value
   .replace_all(old="&", new="&amp;")
   .replace_all(old="<", new="&lt;")
