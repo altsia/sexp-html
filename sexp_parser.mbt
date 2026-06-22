@@ -95,12 +95,16 @@ fn parse_list_form_head(open : Cursor) -> Result[(ParsedHead, Cursor), String] {
 }
 
 ///|
-fn ParsedHead::parse(head : String, after_head : Int) -> Result[ParsedHead, String] {
+fn ParsedHead::parse(
+  head : String,
+  after_head : Int,
+) -> Result[ParsedHead, String] {
   match head {
     "%" => Ok(CommentHead)
     "#" => Ok(RawTextHead)
     "~" => Ok(SpaceHead)
-    _ if head.has_prefix("~") => ParsedHead::parse_spaced_element(head, after_head)
+    _ if head.has_prefix("~") =>
+      ParsedHead::parse_spaced_element(head, after_head)
     _ if head.has_prefix(":") => ParsedHead::parse_attribute(head, after_head)
     _ => Ok(ElementHead(head))
   }
@@ -309,6 +313,13 @@ fn parse_head(start : Cursor) -> (String, Cursor) {
 }
 
 ///|
+priv enum PayloadScanMode {
+  CommentPayload
+  RawTextPayload
+  AttributeValuePayload
+}
+
+///|
 fn parse_text(start : Cursor) -> (String, Cursor) {
   let buffer : Array[Char] = []
   let mut index = start.index
@@ -322,124 +333,88 @@ fn parse_text(start : Cursor) -> (String, Cursor) {
         }
         None => ()
       }
-      buffer.push(ch)
-      index = start.next_char_index(index)
-      continue
-    }
-    if ch == '(' || ch == ')' {
+    } else if ch == '(' || ch == ')' {
       break
     }
     buffer.push(ch)
     index = start.next_char_index(index)
   }
-  (String::from_array(buffer.view()), start.with_index(index))
+  (text_from_buffer(buffer), start.with_index(index))
 }
 
 ///|
 fn parse_comment_payload(start : Cursor) -> Result[(String, Cursor), String] {
-  let buffer : Array[Char] = []
-  let mut index = start.index
-  let mut depth = 0
-  while index < start.code_unit_length() {
-    let ch = start.unsafe_char_at(index)
-    if ch == '\\' {
-      match consume_escaped_paren_into(start, index, buffer) {
-        Some(next) => {
-          index = next
-          continue
-        }
-        None => ()
-      }
-      buffer.push(ch)
-      index = start.next_char_index(index)
-      continue
-    }
-    if ch == '(' {
-      depth = depth + 1
-      buffer.push(ch)
-      index = start.next_char_index(index)
-      continue
-    }
-    if ch == ')' {
-      if depth == 0 {
-        return Ok(
-          (String::from_array(buffer.view()), start.with_index(index + 1)),
-        )
-      }
-      depth = depth - 1
-      buffer.push(ch)
-      index = start.next_char_index(index)
-      continue
-    }
-    buffer.push(ch)
-    index = start.next_char_index(index)
-  }
-  Err(start.error("unterminated comment"))
+  scan_payload(start, CommentPayload)
 }
 
 ///|
 fn parse_raw_text_payload(start : Cursor) -> Result[(String, Cursor), String] {
-  let buffer : Array[Char] = []
-  let mut index = start.index
-  while index < start.code_unit_length() {
-    let ch = start.unsafe_char_at(index)
-    if ch == '\\' {
-      match consume_escaped_paren_into(start, index, buffer) {
-        Some(next) => {
-          index = next
-          continue
-        }
-        None => ()
-      }
-      buffer.push(ch)
-      index = start.next_char_index(index)
-      continue
-    }
-    if ch == ')' {
-      return Ok(
-        (String::from_array(buffer.view()), start.with_index(index + 1)),
-      )
-    }
-    buffer.push(ch)
-    index = start.next_char_index(index)
-  }
-  Err(start.error("unterminated (# ...) text node"))
+  scan_payload(start, RawTextPayload)
 }
 
 ///|
 fn parse_attribute_value_payload(
   start : Cursor,
 ) -> Result[(String, Cursor), String] {
+  scan_payload(start, AttributeValuePayload)
+}
+
+///|
+fn scan_payload(
+  start : Cursor,
+  mode : PayloadScanMode,
+) -> Result[(String, Cursor), String] {
   let buffer : Array[Char] = []
   let mut index = start.index
+  let mut comment_depth = 0
   while index < start.code_unit_length() {
     let ch = start.unsafe_char_at(index)
-    if ch == '\\' {
-      match consume_escaped_paren_into(start, index, buffer) {
-        Some(next) => {
+    match ch {
+      '\\' =>
+        if consume_escaped_paren_into(start, index, buffer) is Some(next) {
           index = next
           continue
         }
-        None => ()
-      }
-      buffer.push(ch)
-      index = start.next_char_index(index)
-      continue
-    }
-    if ch == '(' {
-      return Err(
-        start.with_index(index).error("attribute values must be plain text"),
-      )
-    }
-    if ch == ')' {
-      return Ok(
-        (String::from_array(buffer.view()), start.with_index(index + 1)),
-      )
+      '(' =>
+        match mode {
+          CommentPayload => comment_depth = comment_depth + 1
+          AttributeValuePayload =>
+            return Err(
+              start
+              .with_index(index)
+              .error("attribute values must be plain text"),
+            )
+          RawTextPayload => ()
+        }
+      ')' =>
+        match mode {
+          CommentPayload => {
+            guard comment_depth == 0 else { comment_depth = comment_depth - 1 }
+            return Ok((text_from_buffer(buffer), start.with_index(index + 1)))
+          }
+          RawTextPayload | AttributeValuePayload =>
+            return Ok((text_from_buffer(buffer), start.with_index(index + 1)))
+        }
+      _ => ()
     }
     buffer.push(ch)
     index = start.next_char_index(index)
   }
-  Err(start.error("unterminated attribute"))
+  Err(start.error(mode.unterminated_message()))
+}
+
+///|
+fn PayloadScanMode::unterminated_message(self : PayloadScanMode) -> String {
+  match self {
+    CommentPayload => "unterminated comment"
+    RawTextPayload => "unterminated (# ...) text node"
+    AttributeValuePayload => "unterminated attribute"
+  }
+}
+
+///|
+fn text_from_buffer(buffer : Array[Char]) -> String {
+  String::from_array(buffer.view())
 }
 
 ///|
@@ -448,13 +423,9 @@ fn consume_escaped_paren_into(
   index : Int,
   buffer : Array[Char],
 ) -> Int? {
-  if index + 1 >= source.code_unit_length() {
-    return None
-  }
+  guard index + 1 < source.code_unit_length() else { return None }
   let escaped = source.unsafe_char_at(index + 1)
-  if escaped != '(' && escaped != ')' {
-    return None
-  }
+  guard escaped == '(' || escaped == ')' else { return None }
   buffer.push(escaped)
   Some(index + 2)
 }
@@ -484,12 +455,9 @@ fn strip_parse_flags(nodes : Array[NodeWithTrimBeforeAttr]) -> Array[SexpNode] {
 fn trim_trailing_text_before_attribute(
   children : Array[(SexpNode, Bool)],
 ) -> Unit {
-  if children.is_empty() {
-    return
-  }
+  guard !children.is_empty() else { return }
   let last_index = children.length() - 1
   guard children[last_index] is (Text(text), true) else {  }
-
   let trimmed = text.trim_end().to_owned()
   guard trimmed.is_empty() else { children[last_index] = (Text(trimmed), true) }
   children.truncate(last_index)

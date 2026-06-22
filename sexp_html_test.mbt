@@ -33,6 +33,33 @@ test "escaped parentheses and boolean attribute" {
 }
 
 ///|
+test "payload scanner preserves shared escape behavior" {
+  @test.assert_eq(sexp_to_html("(p slash \\x stays)"), Ok("<p>slash \\x stays</p>"))
+  @test.assert_eq(sexp_to_html("(% keep \\) going)"), Ok("<!-- keep ) going -->"))
+  @test.assert_eq(sexp_to_html("(p (# hello\\)world))"), Ok("<p>hello)world</p>"))
+  @test.assert_eq(
+    sexp_to_html("(div (:title hello\\(x\\)) child)"),
+    Ok("<div title=\"hello(x)\">child</div>"),
+  )
+}
+
+///|
+test "payload scanner reports mode-specific unterminated errors" {
+  match sexp_to_html("(% hello") {
+    Ok(_) => fail("expected an error")
+    Err(error) => @test.assert_eq(error.contains("unterminated comment"), true)
+  }
+  match sexp_to_html("(p (# hello") {
+    Ok(_) => fail("expected an error")
+    Err(error) => @test.assert_eq(error.contains("unterminated (# ...) text node"), true)
+  }
+  match sexp_to_html("(div (:title hello") {
+    Ok(_) => fail("expected an error")
+    Err(error) => @test.assert_eq(error.contains("unterminated attribute"), true)
+  }
+}
+
+///|
 test "attributes may follow children and last one wins" {
   let input = "(div hello (:class a) (:class b) (:id main))"
   let expected = "<div class=\"b\" id=\"main\">hello</div>"
