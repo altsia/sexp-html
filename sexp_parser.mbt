@@ -25,13 +25,15 @@ pub enum ParsedHead {
   ElementHead(String)
 }
 
-///| Parses a full S-expression HTML fragment into normalized AST nodes.
+///|
+/// Parses a full S-expression HTML fragment into normalized AST nodes.
 pub fn parse_sexp_html(source : String) -> Result[Array[SexpNode], String] {
   parse_document(Cursor::new(source))
 }
 
-///| Parses top-level nodes, where attributes are not valid and whitespace only
-///| separates neighboring terms.
+///|
+/// Parses top-level nodes, where attributes are not valid and whitespace only
+/// separates neighboring terms.
 fn parse_document(start : Cursor) -> Result[Array[SexpNode], String] {
   let nodes : Array[SexpNode] = []
   let mut cursor = start.skip_whitespace()
@@ -50,8 +52,9 @@ fn parse_document(start : Cursor) -> Result[Array[SexpNode], String] {
   Ok(nodes)
 }
 
-///| Parses one root/child item. Text nodes carry a trim flag so later attribute
-///| forms can remove separator whitespace that belonged to syntax, not content.
+///|
+/// Parses one root/child item. Text nodes carry a trim flag so later attribute
+/// forms can remove separator whitespace that belonged to syntax, not content.
 fn parse_node(
   cursor : Cursor,
 ) -> Result[(Array[(SexpNode, Bool)], Cursor), String] {
@@ -73,8 +76,9 @@ fn parse_node(
   }
 }
 
-///| Reads the list head and dispatches the rest of the list to the matching
-///| payload parser.
+///|
+/// Reads the list head and dispatches the rest of the list to the matching
+/// payload parser.
 fn parse_list_form(open : Cursor) -> Result[(ParsedListForm, Cursor), String] {
   parse_list_form_head(open).bind(ParsedHead::parse_payload_pair)
 }
@@ -97,7 +101,8 @@ fn parse_list_form_head(open : Cursor) -> Result[(ParsedHead, Cursor), String] {
   })
 }
 
-///| Classifies a head token into syntax forms: %, #, ~, ~tag, :attr, or element.
+///|
+/// Classifies a head token into syntax forms: `%`, `#`, `~`, `~tag`, `:attr`, or element.
 fn ParsedHead::parse(
   head : String,
   after_head : Int,
@@ -159,8 +164,9 @@ fn ParsedHead::parse_payload(
   }
 }
 
-///| Parses `(% payload)`. Separator whitespace after `%` is not comment content;
-///| the payload parser then keeps balanced parentheses until the closing list paren.
+///|
+/// Parses `(% payload)`. Separator whitespace after `%` is not comment content;
+/// the payload parser then keeps balanced parentheses until the closing list paren.
 fn parse_comment(
   after_head : Cursor,
 ) -> Result[(ParsedListForm, Cursor), String] {
@@ -171,8 +177,9 @@ fn parse_comment(
   })
 }
 
-///| Parses `(# payload)`. At most one whitespace char after `#` is syntax
-///| separator; any further whitespace is literal raw text.
+///|
+/// Parses `(# payload)`. At most one whitespace char after `#` is syntax
+/// separator; any further whitespace is literal raw text.
 fn parse_raw_text(
   after_head : Cursor,
 ) -> Result[(ParsedListForm, Cursor), String] {
@@ -187,8 +194,9 @@ fn parse_raw_text(
   })
 }
 
-///| Parses `(~)`, the explicit single-space node. Other payload is rejected so
-///| `~tag` remains the only spaced element form.
+///|
+/// Parses `(~)`, the explicit single-space node. Other payload is rejected so
+/// `~tag` remains the only spaced element form.
 fn parse_space(after_head : Cursor) -> Result[(ParsedListForm, Cursor), String] {
   let cursor = after_head.skip_whitespace()
   match cursor.peek() {
@@ -198,8 +206,9 @@ fn parse_space(after_head : Cursor) -> Result[(ParsedListForm, Cursor), String] 
   }
 }
 
-///| Parses `(:name)` and `(:name value)`. Attribute values are plain text only;
-///| nested list structure is intentionally rejected by the payload scanner.
+///|
+/// Parses `(:name)` and `(:name value)`. Attribute values are plain text only;
+/// nested list structure is intentionally rejected by the payload scanner.
 fn parse_attribute(
   after_head : Cursor,
   name : String,
@@ -224,9 +233,10 @@ fn parse_element(
   parse_element_with_spacing(after_head, tag, false)
 }
 
-///| Parses an element body, collecting attributes and children in source order.
-///| Attribute forms may appear after children; the final AST stores attributes on
-///| the element and trims separator text that preceded those late attributes.
+///|
+/// Parses an element body, collecting attributes and children in source order.
+/// Attribute forms may appear after children; the final AST stores attributes on
+/// the element and trims separator text that preceded those late attributes.
 fn parse_element_with_spacing(
   after_head : Cursor,
   tag : String,
@@ -250,8 +260,9 @@ fn parse_element_with_spacing(
   Err(after_head.error("unterminated element <" + tag + ">"))
 }
 
-///| Builds the element result after the closing paren, applying void-element and
-///| `~tag` spacing rules at the boundary where all children are known.
+///|
+/// Builds the element result after the closing paren, applying void-element and
+/// `~tag` spacing rules at the boundary where all children are known.
 fn build_element_result(
   tag : String,
   attrs : Array[(String, String?)],
@@ -276,8 +287,9 @@ fn build_element_result(
   )
 }
 
-///| Handles one parenthesized item inside an element, either merging an attribute
-///| into the element attrs or appending child nodes.
+///|
+/// Handles one parenthesized item inside an element, either merging an attribute
+/// into the element attrs or appending child nodes.
 fn parse_element_list_item(
   cursor : Cursor,
   attrs : Array[(String, String?)],
@@ -310,7 +322,8 @@ fn parse_element_text(
   next
 }
 
-///| Reads an unparenthesized head token up to whitespace or a list boundary.
+///|
+/// Reads an unparenthesized head token up to whitespace or a list boundary.
 fn parse_head(start : Cursor) -> (String, Cursor) {
   let mut index = start.index
   while index < start.code_unit_length() {
@@ -323,16 +336,18 @@ fn parse_head(start : Cursor) -> (String, Cursor) {
   (start.slice_until(index), start.with_index(index))
 }
 
-///| Payload scanning modes share escaping but differ in how unescaped parens end
-///| or invalidate the payload.
+///|
+/// Payload scanning modes share escaping but differ in how unescaped parens end
+/// or invalidate the payload.
 priv enum PayloadScanMode {
   CommentPayload
   RawTextPayload
   AttributeValuePayload
 }
 
-///| Parses ordinary text until an unescaped list boundary. Only `\(` and `\)`
-///| are unescaped; other backslashes remain literal text.
+///|
+/// Parses ordinary text until an unescaped list boundary. Only `\(` and `\)`
+/// are unescaped; other backslashes remain literal text.
 fn parse_text(start : Cursor) -> (String, Cursor) {
   let buffer : Array[Char] = []
   let mut index = start.index
@@ -355,27 +370,31 @@ fn parse_text(start : Cursor) -> (String, Cursor) {
   (text_from_buffer(buffer), start.with_index(index))
 }
 
-///| Parses comment payload text, allowing balanced unescaped parentheses inside
-///| the comment until the list's closing paren is reached.
+///|
+/// Parses comment payload text, allowing balanced unescaped parentheses inside
+/// the comment until the list's closing paren is reached.
 fn parse_comment_payload(start : Cursor) -> Result[(String, Cursor), String] {
   scan_payload(start, CommentPayload)
 }
 
-///| Parses raw text payload up to the first unescaped closing paren.
+///|
+/// Parses raw text payload up to the first unescaped closing paren.
 fn parse_raw_text_payload(start : Cursor) -> Result[(String, Cursor), String] {
   scan_payload(start, RawTextPayload)
 }
 
-///| Parses an attribute value payload; values may contain escaped parens but not
-///| unescaped nested list structure.
+///|
+/// Parses an attribute value payload; values may contain escaped parens but not
+/// unescaped nested list structure.
 fn parse_attribute_value_payload(
   start : Cursor,
 ) -> Result[(String, Cursor), String] {
   scan_payload(start, AttributeValuePayload)
 }
 
-///| Shared payload scanner for delimited text forms. It centralizes `\(`/`\)`
-///| handling while keeping each syntax form's paren rules explicit in `mode`.
+///|
+/// Shared payload scanner for delimited text forms. It centralizes `\(`/`\)`
+/// handling while keeping each syntax form's paren rules explicit in `mode`.
 fn scan_payload(
   start : Cursor,
   mode : PayloadScanMode,
@@ -419,7 +438,8 @@ fn scan_payload(
   Err(start.error(mode.unterminated_message()))
 }
 
-///| Returns the EOF error text for each delimited payload form.
+///|
+/// Returns the EOF error text for each delimited payload form.
 fn PayloadScanMode::unterminated_message(self : PayloadScanMode) -> String {
   match self {
     CommentPayload => "unterminated comment"
@@ -433,8 +453,9 @@ fn text_from_buffer(buffer : Array[Char]) -> String {
   String::from_array(buffer.view())
 }
 
-///| Consumes `\(` or `\)` as a literal paren and returns the next code-unit
-///| index. Other backslashes are left for the caller to copy unchanged.
+///|
+/// Consumes `\(` or `\)` as a literal paren and returns the next code-unit
+/// index. Other backslashes are left for the caller to copy unchanged.
 fn consume_escaped_paren_into(
   source : Cursor,
   index : Int,
@@ -463,14 +484,16 @@ fn append_parsed_child_nodes(
   target.append(nodes)
 }
 
-///| Removes parser-only trim flags once the caller no longer needs to distinguish
-///| syntactic separator text from literal text.
+///|
+/// Removes parser-only trim flags once the caller no longer needs to distinguish
+/// syntactic separator text from literal text.
 fn strip_parse_flags(nodes : Array[NodeWithTrimBeforeAttr]) -> Array[SexpNode] {
   nodes.map(pair => pair.0)
 }
 
-///| If an attribute appears after text, trim or remove the immediately preceding
-///| text node when it only carried separator whitespace before that attribute.
+///|
+/// If an attribute appears after text, trim or remove the immediately preceding
+/// text node when it only carried separator whitespace before that attribute.
 fn trim_trailing_text_before_attribute(
   children : Array[(SexpNode, Bool)],
 ) -> Unit {
