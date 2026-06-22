@@ -259,7 +259,7 @@ fn escape_sexp_text(text : String) -> String {
     if starts_existing_sexp_paren_escape(chars, index) {
       builder.write_char('\\')
     }
-    if is_sexp_paren(ch) {
+    if is_sexp_text_escape_target(ch) {
       builder.write_char('\\')
     }
     builder.write_char(ch)
@@ -273,5 +273,5 @@ fn escape_sexp_text(text : String) -> String {
 fn starts_existing_sexp_paren_escape(chars : Array[Char], index : Int) -> Bool {
   guard chars[index] == '\\' else { return false }
   guard index + 1 < chars.length() else { return false }
-  is_sexp_paren(chars[index + 1])
+  is_sexp_text_escape_target(chars[index + 1])
 }

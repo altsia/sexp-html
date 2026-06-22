@@ -38,7 +38,7 @@ fn parse_document(start : Cursor) -> Result[Array[SexpNode], String] {
   let nodes : Array[SexpNode] = []
   let mut cursor = start.skip_whitespace()
   while !cursor.is_end() {
-    if cursor.peek() == Some(')') {
+    if cursor.peek().map_or(false, is_sexp_close_paren) {
       return Err(cursor.error("unexpected ')'"))
     }
     match parse_node(cursor) {
@@ -60,7 +60,7 @@ fn parse_node(
 ) -> Result[(Array[(SexpNode, Bool)], Cursor), String] {
   match cursor.peek() {
     None => Err(cursor.error("unexpected end of input"))
-    Some('(') =>
+    Some(ch) if is_sexp_open_paren(ch) =>
       parse_list_form(cursor).bind(item => {
         match item {
           (Nodes(nodes), next) => Ok((nodes, next))
@@ -68,7 +68,7 @@ fn parse_node(
             Err(cursor.error("attribute cannot appear at the document root"))
         }
       })
-    Some(')') => Err(cursor.error("unexpected ')'"))
+    Some(ch) if is_sexp_close_paren(ch) => Err(cursor.error("unexpected ')'"))
     Some(_) => {
       let (text, next) = parse_text(cursor)
       Ok(([(Text(text), true)], next))
@@ -88,7 +88,7 @@ fn parse_list_form_head(open : Cursor) -> Result[(ParsedHead, Cursor), String] {
   let head_start = open.advance_code_units(1).skip_whitespace()
   match head_start.peek() {
     None => return Err(open.error("unterminated list"))
-    Some(')') => return Err(open.error("empty list is invalid"))
+    Some(ch) if is_sexp_close_paren(ch) => return Err(open.error("empty list is invalid"))
     _ => ()
   }
 
@@ -201,7 +201,7 @@ fn parse_space(after_head : Cursor) -> Result[(ParsedListForm, Cursor), String] 
   let cursor = after_head.skip_whitespace()
   match cursor.peek() {
     None => Err(after_head.error("unterminated (~) form"))
-    Some(')') => Ok((Nodes([(Text(" "), false)]), cursor.advance_code_units(1)))
+    Some(ch) if is_sexp_close_paren(ch) => Ok((Nodes([(Text(" "), false)]), cursor.advance_code_units(1)))
     _ => Err(cursor.error("(~) cannot contain attributes or children"))
   }
 }
@@ -216,7 +216,7 @@ fn parse_attribute(
   let cursor = after_head.skip_whitespace()
   match cursor.peek() {
     None => Err(after_head.error("unterminated attribute"))
-    Some(')') => Ok((Attr(name, None), cursor.advance_code_units(1)))
+    Some(ch) if is_sexp_close_paren(ch) => Ok((Attr(name, None), cursor.advance_code_units(1)))
     _ =>
       parse_attribute_value_payload(cursor).map(result => {
         let (value, next) = result
@@ -247,9 +247,9 @@ fn parse_element_with_spacing(
   let mut cursor = after_head.skip_whitespace()
   while !cursor.is_end() {
     match cursor.peek() {
-      Some(')') =>
+      Some(ch) if is_sexp_close_paren(ch) =>
         return build_element_result(tag, attrs, children, spaced, cursor)
-      Some('(') =>
+      Some(ch) if is_sexp_open_paren(ch) =>
         match parse_element_list_item(cursor, attrs, children) {
           Ok(next) => cursor = next.skip_whitespace()
           Err(error) => return Err(error)
@@ -328,7 +328,7 @@ fn parse_head(start : Cursor) -> (String, Cursor) {
   let mut index = start.index
   while index < start.code_unit_length() {
     let ch = start.unsafe_char_at(index)
-    if ch == '(' || ch == ')' || ch.is_whitespace() {
+    if is_sexp_paren(ch) || ch.is_whitespace() {
       break
     }
     index = start.next_char_index(index)
@@ -361,7 +361,7 @@ fn parse_text(start : Cursor) -> (String, Cursor) {
         }
         None => ()
       }
-    } else if ch == '(' || ch == ')' {
+    } else if is_sexp_paren(ch) {
       break
     }
     buffer.push(ch)
@@ -410,7 +410,7 @@ fn scan_payload(
           index = next
           continue
         }
-      '(' =>
+      ch if is_sexp_open_paren(ch) =>
         match mode {
           CommentPayload => comment_depth = comment_depth + 1
           AttributeValuePayload =>
@@ -421,7 +421,7 @@ fn scan_payload(
             )
           RawTextPayload => ()
         }
-      ')' =>
+      ch if is_sexp_close_paren(ch) =>
         match mode {
           CommentPayload => {
             guard comment_depth == 0 else { comment_depth = comment_depth - 1 }
@@ -463,7 +463,7 @@ fn consume_escaped_paren_into(
 ) -> Int? {
   guard index + 1 < source.code_unit_length() else { return None }
   let escaped = source.unsafe_char_at(index + 1)
-  guard escaped == '(' || escaped == ')' else { return None }
+  guard is_sexp_text_escape_target(escaped) else { return None }
   buffer.push(escaped)
   Some(index + 2)
 }
