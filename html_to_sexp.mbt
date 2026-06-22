@@ -275,9 +275,3 @@ fn starts_existing_sexp_paren_escape(chars : Array[Char], index : Int) -> Bool {
   guard index + 1 < chars.length() else { return false }
   is_sexp_paren(chars[index + 1])
 }
-
-///|
-/// Returns true for S-expression text boundary characters.
-fn is_sexp_paren(ch : Char) -> Bool {
-  ch == '(' || ch == ')'
-}
