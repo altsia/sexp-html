@@ -103,7 +103,8 @@ fn render_nodes_as_sexp_term(
   collect_sexp_terms(document, node_ids).map(join_non_empty_terms)
 }
 
-///|
+///| Serializes one HTML text node. Leading whitespace cannot be represented as a
+///| bare text term, so those nodes use the explicit raw text form.
 fn render_text_as_sexp_term(text : String) -> Result[String?, String] {
   if !text.is_empty() && !starts_with_whitespace(text) {
     return Ok(Some(escape_sexp_text(text)))
@@ -111,7 +112,8 @@ fn render_text_as_sexp_term(text : String) -> Result[String?, String] {
   Ok(Some(render_raw_text_form(text)))
 }
 
-///|
+///| Serializes an HTML comment as `(% ...)`. Canonicalization trims browser
+///| comment whitespace before escaping S-expression parens.
 fn render_comment_as_sexp_term(text : String) -> String {
   let trimmed = text.trim().to_owned()
   "(% \{escape_sexp_text(trimmed)})"
@@ -185,7 +187,9 @@ fn html_element_child_ids(
   }
 }
 
-///|
+///| Serializes an HTML attribute form. Empty values become boolean/minimized
+///| attrs; leading-whitespace values are rejected because they need raw text syntax,
+///| which attributes intentionally do not support.
 fn render_attribute_as_sexp_form(
   name : String,
   value : String,
@@ -227,21 +231,21 @@ fn starts_with_whitespace(text : String) -> Bool {
   text.get_char(0).map_or(false, ch => ch.is_whitespace())
 }
 
-///|
+///| Emits the explicit raw text form, preserving leading whitespace and other text
+///| that would be ambiguous as a bare S-expression term.
 fn render_raw_text_form(text : String) -> String {
   "(# " + escape_sexp_text(text) + ")"
 }
 
 ///|
 fn join_non_empty_terms(terms : Array[String]) -> String? {
-  if terms.is_empty() {
-    None
-  } else {
-    Some(terms.join("\n"))
-  }
+  guard !terms.is_empty() else { return None }
+  Some(terms.join("\n"))
 }
 
-///|
+///| Escapes only the characters that are structural in S-expression text terms.
+///| Existing `\(` and `\)` sequences keep their backslash so round-tripping does
+///| not turn an already-escaped paren into a double-escaped literal backslash.
 fn escape_sexp_text(text : String) -> String {
   let chars = text.to_array()
   let builder = StringBuilder::new()
