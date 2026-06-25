@@ -84,7 +84,7 @@ pub(all) enum SexpNode {
   Text(String)
   Comment(String)
   RawHtml(String)
-  Element(String, Array[(String, String?)], Array[SexpNode])
+  Element(String, HtmlAttrs, Array[SexpNode])
 }
 ```
 
@@ -94,7 +94,7 @@ Use `RawHtml` for trusted HTML that should be inserted directly without escaping
 
 ```moonbit
 render_html([
-  SexpNode::Element("p", [], [
+  SexpNode::Element("p", HtmlAttrs({}), [
     SexpNode::Text("<escaped> "),
     SexpNode::RawHtml("<em>trusted</em>"),
   ]),
@@ -104,9 +104,9 @@ render_html([
 `sexp-html` also provides helpers for common HTML rendering operations:
 
 ```moonbit
-let attrs : Array[(String, String?)] = []
-upsert_attr(attrs, "lang", Some("en"))
-append_class(attrs, "page")
+let attrs : HtmlAttrs = HtmlAttrs({})
+attrs.upsert("lang", Some("en"))
+attrs.append_class("page")
 
 render_open_tag("html", attrs)
 render_html_document(attrs, head, body, Some("html"))

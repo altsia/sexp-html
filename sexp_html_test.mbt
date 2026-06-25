@@ -34,9 +34,18 @@ test "escaped parentheses and boolean attribute" {
 
 ///|
 test "payload scanner preserves shared escape behavior" {
-  @test.assert_eq(sexp_to_html("(p slash \\x stays)"), Ok("<p>slash \\x stays</p>"))
-  @test.assert_eq(sexp_to_html("(% keep \\) going)"), Ok("<!-- keep ) going -->"))
-  @test.assert_eq(sexp_to_html("(p (# hello\\)world))"), Ok("<p>hello)world</p>"))
+  @test.assert_eq(
+    sexp_to_html("(p slash \\x stays)"),
+    Ok("<p>slash \\x stays</p>"),
+  )
+  @test.assert_eq(
+    sexp_to_html("(% keep \\) going)"),
+    Ok("<!-- keep ) going -->"),
+  )
+  @test.assert_eq(
+    sexp_to_html("(p (# hello\\)world))"),
+    Ok("<p>hello)world</p>"),
+  )
   @test.assert_eq(
     sexp_to_html("(div (:title hello\\(x\\)) child)"),
     Ok("<div title=\"hello(x)\">child</div>"),
@@ -51,11 +60,13 @@ test "payload scanner reports mode-specific unterminated errors" {
   }
   match sexp_to_html("(p (# hello") {
     Ok(_) => fail("expected an error")
-    Err(error) => @test.assert_eq(error.contains("unterminated (# ...) text node"), true)
+    Err(error) =>
+      @test.assert_eq(error.contains("unterminated (# ...) text node"), true)
   }
   match sexp_to_html("(div (:title hello") {
     Ok(_) => fail("expected an error")
-    Err(error) => @test.assert_eq(error.contains("unterminated attribute"), true)
+    Err(error) =>
+      @test.assert_eq(error.contains("unterminated attribute"), true)
   }
 }
 
@@ -138,12 +149,15 @@ test "lists must have a non-empty head term" {
 ///|
 test "public AST can be rendered directly" {
   let nodes = [
-    SexpNode::Element("p", [], [
+    SexpNode::Element("p", HtmlAttrs({}), [
       SexpNode::Text("Hello "),
-      SexpNode::Element("strong", [], [SexpNode::Text("AST")]),
+      SexpNode::Element("strong", HtmlAttrs({}), [SexpNode::Text("AST")]),
     ]),
   ]
-  @test.assert_eq(render_html_fragment(nodes), "<p>Hello <strong>AST</strong></p>")
+  @test.assert_eq(
+    render_html_fragment(nodes),
+    "<p>Hello <strong>AST</strong></p>",
+  )
 }
 
 ///|
@@ -163,20 +177,23 @@ test "public AST transform can rewrite parsed elements" {
 ///|
 test "raw html node renders trusted html without escaping" {
   let nodes = [
-    SexpNode::Element("p", [], [
+    SexpNode::Element("p", HtmlAttrs({}), [
       SexpNode::Text("<escaped> "),
       SexpNode::RawHtml("<em>trusted</em>"),
     ]),
   ]
-  @test.assert_eq(render_html_fragment(nodes), "<p>&lt;escaped&gt; <em>trusted</em></p>")
+  @test.assert_eq(
+    render_html_fragment(nodes),
+    "<p>&lt;escaped&gt; <em>trusted</em></p>",
+  )
 }
 
 ///|
 test "document renderer emits doctype and pretty html shell" {
   let html = render_html_document(
-    [("lang", Some("en"))],
-    [SexpNode::Element("title", [], [SexpNode::Text("Test")])],
-    [SexpNode::Element("p", [], [SexpNode::Text("Hello")])],
+    HtmlAttrs({ "lang": Some("en") }),
+    [SexpNode::Element("title", HtmlAttrs({}), [SexpNode::Text("Test")])],
+    [SexpNode::Element("p", HtmlAttrs({}), [SexpNode::Text("Hello")])],
     Some("html"),
   )
   let expected =
@@ -194,7 +211,7 @@ test "document renderer emits doctype and pretty html shell" {
 
 ///|
 test "open tag and attr helpers" {
-  let attrs : HtmlAttrs = HtmlAttrs([])
+  let attrs : HtmlAttrs = HtmlAttrs({})
   attrs.upsert("class", Some("note"))
   attrs.append_class("warning")
   attrs.upsert("id", Some("main"))
@@ -279,7 +296,7 @@ fn transform_icon_test_node(node : SexpNode) -> SexpNode {
     Element("icon", _, children) =>
       SexpNode::Element(
         "span",
-        [("class", Some("icon"))],
+        HtmlAttrs({ "class": Some("icon") }),
         children.map(transform_icon_test_node),
       )
     Element(tag, attrs, children) =>

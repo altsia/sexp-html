@@ -1,5 +1,5 @@
 ///|
-pub struct Cursor {
+priv struct Cursor {
   source : String
   index : Int
 }
@@ -52,7 +52,8 @@ fn Cursor::with_index(self : Cursor, index : Int) -> Cursor {
 ///|
 fn Cursor::skip_whitespace(self : Cursor) -> Cursor {
   let mut index = self.index
-  while index < self.code_unit_length() && self.unsafe_char_at(index).is_whitespace() {
+  while index < self.code_unit_length() &&
+        self.unsafe_char_at(index).is_whitespace() {
     index = self.next_char_index(index)
   }
   self.with_index(index)

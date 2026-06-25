@@ -3,20 +3,20 @@ pub(all) enum SexpNode {
   Text(String)
   Comment(String)
   RawHtml(String)
-  Element(String, Array[(String, String?)], Array[SexpNode])
+  Element(String, HtmlAttrs, Array[SexpNode])
 }
 
 ///|
-pub type NodeWithTrimBeforeAttr = (SexpNode, Bool)
+type NodeWithTrimBeforeAttr = (SexpNode, Bool)
 
 ///|
-pub enum ParsedListForm {
+priv enum ParsedListForm {
   Attr(String, String?)
   Nodes(Array[NodeWithTrimBeforeAttr])
 }
 
 ///|
-pub enum ParsedHead {
+priv enum ParsedHead {
   CommentHead
   RawTextHead
   SpaceHead
@@ -88,7 +88,8 @@ fn parse_list_form_head(open : Cursor) -> Result[(ParsedHead, Cursor), String] {
   let head_start = open.advance_code_units(1).skip_whitespace()
   match head_start.peek() {
     None => return Err(open.error("unterminated list"))
-    Some(ch) if is_sexp_close_paren(ch) => return Err(open.error("empty list is invalid"))
+    Some(ch) if is_sexp_close_paren(ch) =>
+      return Err(open.error("empty list is invalid"))
     _ => ()
   }
 
@@ -201,7 +202,8 @@ fn parse_space(after_head : Cursor) -> Result[(ParsedListForm, Cursor), String] 
   let cursor = after_head.skip_whitespace()
   match cursor.peek() {
     None => Err(after_head.error("unterminated (~) form"))
-    Some(ch) if is_sexp_close_paren(ch) => Ok((Nodes([(Text(" "), false)]), cursor.advance_code_units(1)))
+    Some(ch) if is_sexp_close_paren(ch) =>
+      Ok((Nodes([(Text(" "), false)]), cursor.advance_code_units(1)))
     _ => Err(cursor.error("(~) cannot contain attributes or children"))
   }
 }
@@ -216,7 +218,8 @@ fn parse_attribute(
   let cursor = after_head.skip_whitespace()
   match cursor.peek() {
     None => Err(after_head.error("unterminated attribute"))
-    Some(ch) if is_sexp_close_paren(ch) => Ok((Attr(name, None), cursor.advance_code_units(1)))
+    Some(ch) if is_sexp_close_paren(ch) =>
+      Ok((Attr(name, None), cursor.advance_code_units(1)))
     _ =>
       parse_attribute_value_payload(cursor).map(result => {
         let (value, next) = result
@@ -242,7 +245,7 @@ fn parse_element_with_spacing(
   tag : String,
   spaced : Bool,
 ) -> Result[(ParsedListForm, Cursor), String] {
-  let attrs : Array[(String, String?)] = []
+  let attrs : HtmlAttrs = HtmlAttrs({})
   let children : Array[(SexpNode, Bool)] = []
   let mut cursor = after_head.skip_whitespace()
   while !cursor.is_end() {
@@ -265,7 +268,7 @@ fn parse_element_with_spacing(
 /// `~tag` spacing rules at the boundary where all children are known.
 fn build_element_result(
   tag : String,
-  attrs : Array[(String, String?)],
+  attrs : HtmlAttrs,
   children : Array[(SexpNode, Bool)],
   spaced : Bool,
   close : Cursor,
@@ -292,7 +295,7 @@ fn build_element_result(
 /// into the element attrs or appending child nodes.
 fn parse_element_list_item(
   cursor : Cursor,
-  attrs : Array[(String, String?)],
+  attrs : HtmlAttrs,
   children : Array[(SexpNode, Bool)],
 ) -> Result[Cursor, String] {
   parse_list_form(cursor).bind(item => {

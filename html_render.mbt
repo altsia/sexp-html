@@ -1,5 +1,5 @@
 ///|
-pub(all) struct HtmlAttrs(Array[(String, String?)])
+pub(all) struct HtmlAttrs(Map[String, String?])
 
 ///|
 const NODE_RENDER_SEPARATOR = ""
@@ -22,7 +22,7 @@ pub fn render_html_fragment(
 
 ///|
 pub fn render_html_document(
-  html_attrs : Array[(String, String?)],
+  html_attrs : HtmlAttrs,
   head : Array[SexpNode],
   body : Array[SexpNode],
   doctype : String?,
@@ -55,30 +55,16 @@ pub fn HtmlAttrs::upsert(
   name : String,
   value : String?,
 ) -> Unit {
-  let attrs = attrs.0
-  for i in 0..<attrs.length() {
-    if attrs[i] is (existing, _) && existing == name {
-      attrs[i] = (name, value)
-      return
-    }
-  }
-  attrs.push((name, value))
+  attrs.0[name] = value
 }
 
 ///|
 pub fn HtmlAttrs::append_class(self : HtmlAttrs, class_name : String) -> Unit {
   let attrs = self.0
-  for i in 0..<attrs.length() {
-    if attrs[i] is ("class", Some(value)) {
-      attrs[i] = ("class", Some(value + " " + class_name))
-      return
-    }
-    if attrs[i] is ("class", None) {
-      attrs[i] = ("class", Some(class_name))
-      return
-    }
+  match attrs.get("class") {
+    Some(Some(value)) => attrs["class"] = Some(value + " " + class_name)
+    _ => attrs["class"] = Some(class_name)
   }
-  attrs.push(("class", Some(class_name)))
 }
 
 ///|
@@ -113,9 +99,9 @@ fn render_element(
   attrs : HtmlAttrs,
   children : Array[SexpNode],
 ) -> String {
-  guard !is_void_element_name(tag) else { return render_open_tag(tag, attrs.0) }
+  guard !is_void_element_name(tag) else { return render_open_tag(tag, attrs) }
   let builder = StringBuilder()
-  builder.write_string(render_open_tag(tag, attrs.0))
+  builder.write_string(render_open_tag(tag, attrs))
   for child in children {
     builder.write_string(child.render_html())
   }
@@ -127,11 +113,10 @@ fn render_element(
 
 ///|
 fn append_serialized_attrs(builder : StringBuilder, attrs : HtmlAttrs) -> Unit {
-  for attr in attrs.0 {
-    match attr {
-      (name, None) => builder <+ " \{name}"
-      (name, Some(value)) =>
-        builder <+ " \{name}=\"\{escape_html_attr_value(value)}\""
+  for name, value in attrs.0 {
+    match value {
+      None => builder <+ " \{name}"
+      Some(value) => builder <+ " \{name}=\"\{escape_html_attr_value(value)}\""
     }
   }
 }

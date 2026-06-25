@@ -5,7 +5,9 @@ pub fn html_to_sexp(source : String) -> Result[String, String] {
 }
 
 ///|
-fn serialize_sexp_fragment(document : @html5.Document) -> Result[String, String] {
+fn serialize_sexp_fragment(
+  document : @html5.Document,
+) -> Result[String, String] {
   let node_ids = document.get_children(0)
   render_sexp_fragment_terms(document, node_ids).map(terms => terms.join("\n"))
 }
@@ -84,7 +86,8 @@ fn render_node_as_sexp_term(
 ) -> Result[String?, String] {
   match document.get_node(node_id) {
     Some(@html5.TextNode(text)) => render_text_as_sexp_term(text)
-    Some(@html5.CommentNode(text)) => Ok(Some(render_comment_as_sexp_term(text)))
+    Some(@html5.CommentNode(text)) =>
+      Ok(Some(render_comment_as_sexp_term(text)))
     Some(@html5.ElementNode(element)) =>
       render_element_as_sexp_term(document, node_id, element)
     Some(@html5.DocumentTypeNode(..)) => Ok(None)
