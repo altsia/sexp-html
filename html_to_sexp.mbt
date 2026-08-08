@@ -9,16 +9,24 @@ fn serialize_sexp_fragment(
   document : @html5.Document,
 ) -> Result[String, String] {
   let node_ids = document.get_children(0)
-  render_sexp_fragment_terms(document, node_ids).map(terms => terms.join(""))
+  collect_fragment_terms(document, node_ids).map(terms => terms.join(""))
 }
 
 ///|
-fn render_sexp_fragment_terms(
+/// Collects the sexp terms for a list of node ids, flattening the document
+/// root into its fragment children.
+fn collect_fragment_terms(
   document : @html5.Document,
   node_ids : Array[Int],
 ) -> Result[Array[String], String] {
   let terms : Array[String] = []
-  append_sexp_fragment_terms(document, terms, node_ids).map(_ => terms)
+  for node_id in node_ids {
+    match render_node_as_sexp_terms(document, node_id) {
+      Ok(node_terms) => terms.append(node_terms)
+      Err(error) => return Err(error)
+    }
+  }
+  Ok(terms)
 }
 
 ///|
@@ -39,33 +47,14 @@ fn render_document_element_as_fragment_terms(
 ) -> Result[Array[String], String] {
   match document.get_node(node_id) {
     Some(@html5.ElementNode(element)) => {
-      let terms : Array[String] = []
+      let node_ids : Array[Int] = []
       for child_id in element.children {
-        let node_ids = html_document_fragment_child_ids(document, child_id)
-        match append_sexp_fragment_terms(document, terms, node_ids) {
-          Err(error) => return Err(error)
-          Ok(_) => ()
-        }
+        node_ids.append(html_document_fragment_child_ids(document, child_id))
       }
-      Ok(terms)
+      collect_fragment_terms(document, node_ids)
     }
     _ => Err("internal error: document root is not an html element")
   }
-}
-
-///|
-fn append_sexp_fragment_terms(
-  document : @html5.Document,
-  terms : Array[String],
-  node_ids : Array[Int],
-) -> Result[Unit, String] {
-  for node_id in node_ids {
-    match render_node_as_sexp_terms(document, node_id) {
-      Ok(node_terms) => append_terms(terms, node_terms)
-      Err(error) => return Err(error)
-    }
-  }
-  Ok(())
 }
 
 ///|
@@ -104,7 +93,7 @@ fn render_nodes_as_sexp_term(
   document : @html5.Document,
   node_ids : Array[Int],
 ) -> Result[String?, String] {
-  collect_sexp_terms(document, node_ids).map(join_non_empty_terms)
+  collect_fragment_terms(document, node_ids).map(join_non_empty_terms)
 }
 
 ///|
@@ -167,12 +156,12 @@ fn render_element_as_sexp_term(
   let builder = StringBuilder::new()
   builder.write_char('(')
   builder.write_string(element.tag_name)
-  match append_sexp_attribute_forms(builder, element.attributes) {
+  match write_sexp_attribute_forms(builder, element.attributes) {
     Ok(_) => ()
     Err(error) => return Err(error)
   }
   match
-    append_child_sexp_terms(
+    write_child_sexp_terms(
       builder,
       document,
       html_element_child_ids(document, node_id, element),
@@ -185,7 +174,7 @@ fn render_element_as_sexp_term(
 }
 
 ///|
-fn append_sexp_attribute_forms(
+fn write_sexp_attribute_forms(
   builder : StringBuilder,
   attrs : Array[(String, String)],
 ) -> Result[Unit, String] {
@@ -201,12 +190,12 @@ fn append_sexp_attribute_forms(
 }
 
 ///|
-fn append_child_sexp_terms(
+fn write_child_sexp_terms(
   builder : StringBuilder,
   document : @html5.Document,
   node_ids : Array[Int],
 ) -> Result[Unit, String] {
-  collect_sexp_terms(document, node_ids).map(child_terms => {
+  collect_fragment_terms(document, node_ids).map(child_terms => {
     for index, term in child_terms {
       if index == 0 {
         builder.write_char(' ')
@@ -248,27 +237,6 @@ fn render_attribute_as_sexp_form(
     )
   }
   Ok("(:" + name + " " + escape_sexp_text(value) + ")")
-}
-
-///|
-fn collect_sexp_terms(
-  document : @html5.Document,
-  node_ids : Array[Int],
-) -> Result[Array[String], String] {
-  let terms : Array[String] = []
-  for node_id in node_ids {
-    match render_node_as_sexp_term(document, node_id) {
-      Ok(Some(term)) => terms.push(term)
-      Ok(None) => ()
-      Err(error) => return Err(error)
-    }
-  }
-  Ok(terms)
-}
-
-///|
-fn append_terms(target : Array[String], terms : Array[String]) -> Unit {
-  target.append(terms)
 }
 
 ///|

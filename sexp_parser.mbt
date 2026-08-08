@@ -2,17 +2,24 @@
 pub(all) enum SexpNode {
   Text(String)
   Comment(String)
-  RawHtml(String)
-  Element(String, HtmlAttrs, Array[SexpNode])
+  Raw(String)
+  Element(String, Attrs, Array[SexpNode])
 }
 
 ///|
-type NodeWithTrimBeforeAttr = (SexpNode, Bool)
+/// A node during element-body / document parsing. `BareText` is normalized
+/// text whose trailing whitespace is structural (trimmable before an attribute
+/// and droppable at the end of a document); `Explicit` is content that must be
+/// kept verbatim (raw text, space forms, elements, comments).
+priv enum ParseContent {
+  BareText(String)
+  Explicit(SexpNode)
+}
 
 ///|
 priv enum ParsedListForm {
   Attr(String, String?)
-  Nodes(Array[NodeWithTrimBeforeAttr])
+  Nodes(Array[ParseContent])
 }
 
 ///|
@@ -27,7 +34,7 @@ priv enum ParsedHead {
 
 ///|
 /// Parses a full S-expression HTML fragment into normalized AST nodes.
-pub fn parse_sexp_html(source : String) -> Result[Array[SexpNode], String] {
+pub fn parse_sexp(source : String) -> Result[Array[SexpNode], String] {
   parse_document(Cursor::new(source))
 }
 
@@ -35,7 +42,7 @@ pub fn parse_sexp_html(source : String) -> Result[Array[SexpNode], String] {
 /// Parses top-level nodes. Leading and trailing document whitespace is
 /// structural and dropped; whitespace between top-level nodes is content.
 fn parse_document(start : Cursor) -> Result[Array[SexpNode], String] {
-  let nodes : Array[(SexpNode, Bool)] = []
+  let nodes : Array[ParseContent] = []
   let mut cursor = start.skip_whitespace()
   while !cursor.is_end() {
     if cursor.peek().map_or(false, is_sexp_close_paren) {
@@ -51,20 +58,18 @@ fn parse_document(start : Cursor) -> Result[Array[SexpNode], String] {
   }
   while !nodes.is_empty() {
     match nodes[nodes.length() - 1] {
-      (Text(text), true) if text.trim().is_empty() => ignore(nodes.pop())
+      BareText(text) if text.trim().is_empty() => ignore(nodes.pop())
       _ => break
     }
   }
-  Ok(nodes.map(pair => pair.0))
+  Ok(nodes.map(item => item.to_node()))
 }
 
 ///|
-/// Parses one root/child item. Bare text nodes carry a flag so an immediately
-/// following attribute form can trim their structural trailing whitespace;
-/// explicit raw text and space forms are never trimmed.
-fn parse_node(
-  cursor : Cursor,
-) -> Result[(Array[(SexpNode, Bool)], Cursor), String] {
+/// Parses one root/child item. Bare text is wrapped in `BareText` so an
+/// immediately following attribute form can trim its structural trailing
+/// whitespace; explicit raw text and space forms are never trimmed.
+fn parse_node(cursor : Cursor) -> Result[(Array[ParseContent], Cursor), String] {
   match cursor.peek() {
     None => Err(cursor.error("unexpected end of input"))
     Some(ch) if is_sexp_open_paren(ch) =>
@@ -78,7 +83,7 @@ fn parse_node(
     Some(ch) if is_sexp_close_paren(ch) => Err(cursor.error("unexpected ')'"))
     Some(_) => {
       let (text, next) = parse_text(cursor)
-      Ok(([(Text(text), true)], next))
+      Ok(([BareText(text)], next))
     }
   }
 }
@@ -181,7 +186,7 @@ fn parse_comment(
   let start = after_head.skip_whitespace()
   parse_comment_payload(start).map(result => {
     let (content, next) = result
-    (Nodes([(Comment(content), false)]), next)
+    (Nodes([Explicit(Comment(content))]), next)
   })
 }
 
@@ -193,7 +198,7 @@ fn parse_raw_text(
 ) -> Result[(ParsedListForm, Cursor), String] {
   parse_raw_text_payload(after_head).map(result => {
     let (content, next) = result
-    (Nodes([(Text(content), false)]), next)
+    (Nodes([Explicit(Text(content))]), next)
   })
 }
 
@@ -208,7 +213,7 @@ fn parse_space(after_head : Cursor) -> Result[(ParsedListForm, Cursor), String] 
   guard is_sexp_close_paren(ch) else {
     return Err(cursor.error("(~) cannot contain attributes or children"))
   }
-  Ok((Nodes([(Text(" "), false)]), cursor.advance_code_units(1)))
+  Ok((Nodes([Explicit(Text(" "))]), cursor.advance_code_units(1)))
 }
 
 ///|
@@ -248,8 +253,8 @@ fn parse_element_with_spacing(
   tag : String,
   spaced : Bool,
 ) -> Result[(ParsedListForm, Cursor), String] {
-  let attrs : HtmlAttrs = HtmlAttrs({})
-  let children : Array[(SexpNode, Bool)] = []
+  let attrs : Attrs = Attrs({})
+  let children : Array[ParseContent] = []
   let mut cursor = after_head.skip_whitespace()
   while !cursor.is_end() {
     match cursor.peek() {
@@ -271,8 +276,8 @@ fn parse_element_with_spacing(
 /// `~tag` spacing rules at the boundary where all children are known.
 fn build_element_result(
   tag : String,
-  attrs : HtmlAttrs,
-  children : Array[(SexpNode, Bool)],
+  attrs : Attrs,
+  children : Array[ParseContent],
   spaced : Bool,
   close : Cursor,
 ) -> Result[(ParsedListForm, Cursor), String] {
@@ -281,13 +286,13 @@ fn build_element_result(
       close.error("void element <" + tag + "> cannot have child nodes"),
     )
   }
-  let element = Element(tag, attrs, strip_parse_flags(children))
+  let element = Element(tag, attrs, children.map(ParseContent::to_node))
   guard spaced else {
-    Ok((Nodes([(element, false)]), close.advance_code_units(1)))
+    Ok((Nodes([Explicit(element)]), close.advance_code_units(1)))
   }
   Ok(
     (
-      Nodes([(Text(" "), false), (element, false), (Text(" "), false)]),
+      Nodes([Explicit(Text(" ")), Explicit(element), Explicit(Text(" "))]),
       close.advance_code_units(1),
     ),
   )
@@ -299,18 +304,18 @@ fn build_element_result(
 /// child nodes are appended as content.
 fn parse_element_list_item(
   cursor : Cursor,
-  attrs : HtmlAttrs,
-  children : Array[(SexpNode, Bool)],
+  attrs : Attrs,
+  children : Array[ParseContent],
 ) -> Result[Cursor, String] {
   parse_list_form(cursor).bind(item => {
     match item {
       (Attr(name, value), next) => {
         trim_trailing_text_before_attribute(children)
-        HtmlAttrs::upsert(attrs, name, value)
+        Attrs::upsert(attrs, name, value)
         Ok(next.skip_whitespace())
       }
       (Nodes(nodes), next) => {
-        append_parsed_child_nodes(children, nodes)
+        children.append(nodes)
         Ok(next)
       }
     }
@@ -320,11 +325,11 @@ fn parse_element_list_item(
 ///|
 fn parse_element_text(
   cursor : Cursor,
-  children : Array[(SexpNode, Bool)],
+  children : Array[ParseContent],
 ) -> Cursor {
   let (text, next) = parse_text(cursor)
   if !text.is_empty() {
-    children.push((Text(text), true))
+    children.push(BareText(text))
   }
   next
 }
@@ -578,35 +583,27 @@ fn consume_escaped_paren_into(
 }
 
 ///|
-fn append_parsed_child_nodes(
-  target : Array[(SexpNode, Bool)],
-  nodes : Array[(SexpNode, Bool)],
-) -> Unit {
-  target.append(nodes)
-}
-
-///|
-/// Removes parser-only trim flags once the caller no longer needs to distinguish
-/// syntactic separator text from literal text.
-fn strip_parse_flags(nodes : Array[NodeWithTrimBeforeAttr]) -> Array[SexpNode] {
-  nodes.map(pair => pair.0)
+/// Converts a parse-time item into its final AST node.
+fn ParseContent::to_node(self : ParseContent) -> SexpNode {
+  match self {
+    BareText(text) => Text(text)
+    Explicit(node) => node
+  }
 }
 
 ///|
 /// If an attribute follows a normalized bare text term, its trailing whitespace
 /// is structural and is trimmed (or the term removed if it was only whitespace).
-fn trim_trailing_text_before_attribute(
-  children : Array[(SexpNode, Bool)],
-) -> Unit {
+fn trim_trailing_text_before_attribute(children : Array[ParseContent]) -> Unit {
   guard !children.is_empty() else { return }
   let last_index = children.length() - 1
   match children[last_index] {
-    (Text(text), true) => {
+    BareText(text) => {
       let trimmed = text.trim_end().to_owned()
       if trimmed.is_empty() {
         children.truncate(last_index)
       } else {
-        children[last_index] = (Text(trimmed), true)
+        children[last_index] = BareText(trimmed)
       }
     }
     _ => ()

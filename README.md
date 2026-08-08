@@ -78,7 +78,7 @@ see [SPEC.md](./SPEC.md).
 For custom forms that should become normal HTML-shaped nodes, parse to the public AST, transform it, then render it:
 
 ```moonbit
-parse_sexp_html("(p (icon search))").map(transform).map(render_html)
+parse_sexp("(p (icon search))").map(transform).map(render_html)
 ```
 
 The public AST is normalized to HTML-shaped nodes:
@@ -87,20 +87,20 @@ The public AST is normalized to HTML-shaped nodes:
 pub(all) enum SexpNode {
   Text(String)
   Comment(String)
-  RawHtml(String)
-  Element(String, HtmlAttrs, Array[SexpNode])
+  Raw(String)
+  Element(String, Attrs, Array[SexpNode])
 }
 ```
 
 Syntax forms such as `(# ...)`, `(~)`, and `(~tag ...)` are expanded during parsing into ordinary `Text` and `Element` nodes.
 
-Use `RawHtml` for trusted HTML that should be inserted directly without escaping:
+Use `Raw` for trusted content that should be inserted directly without escaping:
 
 ```moonbit
 render_html([
-  SexpNode::Element("p", HtmlAttrs({}), [
+  SexpNode::Element("p", Attrs({}), [
     SexpNode::Text("<escaped> "),
-    SexpNode::RawHtml("<em>trusted</em>"),
+    SexpNode::Raw("<em>trusted</em>"),
   ]),
 ])
 ```
@@ -108,7 +108,7 @@ render_html([
 `sexp-html` also provides helpers for common HTML rendering operations:
 
 ```moonbit
-let attrs : HtmlAttrs = HtmlAttrs({})
+let attrs : Attrs = Attrs({})
 attrs.upsert("lang", Some("en"))
 attrs.append_class("page")
 

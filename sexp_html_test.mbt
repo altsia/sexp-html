@@ -206,9 +206,9 @@ test "lists must have a non-empty head term" {
 ///|
 test "public AST can be rendered directly" {
   let nodes = [
-    SexpNode::Element("p", HtmlAttrs({}), [
+    SexpNode::Element("p", Attrs({}), [
       SexpNode::Text("Hello "),
-      SexpNode::Element("strong", HtmlAttrs({}), [SexpNode::Text("AST")]),
+      SexpNode::Element("strong", Attrs({}), [SexpNode::Text("AST")]),
     ]),
   ]
   @test.assert_eq(
@@ -219,7 +219,7 @@ test "public AST can be rendered directly" {
 
 ///|
 test "public AST transform can rewrite parsed elements" {
-  match parse_sexp_html("(p (icon search))") {
+  match parse_sexp("(p (icon search))") {
     Err(error) => fail(error)
     Ok(nodes) => {
       let transformed = nodes.map(transform_icon_test_node)
@@ -234,9 +234,9 @@ test "public AST transform can rewrite parsed elements" {
 ///|
 test "raw html node renders trusted html without escaping" {
   let nodes = [
-    SexpNode::Element("p", HtmlAttrs({}), [
+    SexpNode::Element("p", Attrs({}), [
       SexpNode::Text("<escaped> "),
-      SexpNode::RawHtml("<em>trusted</em>"),
+      SexpNode::Raw("<em>trusted</em>"),
     ]),
   ]
   @test.assert_eq(
@@ -248,9 +248,9 @@ test "raw html node renders trusted html without escaping" {
 ///|
 test "document renderer emits doctype and pretty html shell" {
   let html = render_html_document(
-    HtmlAttrs({ "lang": Some("en") }),
-    [SexpNode::Element("title", HtmlAttrs({}), [SexpNode::Text("Test")])],
-    [SexpNode::Element("p", HtmlAttrs({}), [SexpNode::Text("Hello")])],
+    Attrs({ "lang": Some("en") }),
+    [SexpNode::Element("title", Attrs({}), [SexpNode::Text("Test")])],
+    [SexpNode::Element("p", Attrs({}), [SexpNode::Text("Hello")])],
     Some("html"),
   )
   let expected =
@@ -268,7 +268,7 @@ test "document renderer emits doctype and pretty html shell" {
 
 ///|
 test "open tag and attr helpers" {
-  let attrs : HtmlAttrs = HtmlAttrs({})
+  let attrs : Attrs = Attrs({})
   attrs.upsert("class", Some("note"))
   attrs.append_class("warning")
   attrs.upsert("id", Some("main"))
@@ -507,7 +507,7 @@ fn transform_icon_test_node(node : SexpNode) -> SexpNode {
     Element("icon", _, children) =>
       SexpNode::Element(
         "span",
-        HtmlAttrs({ "class": Some("icon") }),
+        Attrs({ "class": Some("icon") }),
         children.map(transform_icon_test_node),
       )
     Element(tag, attrs, children) =>

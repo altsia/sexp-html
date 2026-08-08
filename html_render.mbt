@@ -1,5 +1,5 @@
 ///|
-pub(all) struct HtmlAttrs(Map[String, String?])
+pub(all) struct Attrs(Map[String, String?])
 
 ///|
 const NODE_RENDER_SEPARATOR = ""
@@ -9,7 +9,7 @@ pub fn sexp_to_html(
   source : String,
   separator? : String = NODE_RENDER_SEPARATOR,
 ) -> Result[String, String] {
-  parse_sexp_html(source).map(nodes => render_html_fragment(nodes, separator~))
+  parse_sexp(source).map(nodes => render_html_fragment(nodes, separator~))
 }
 
 ///|
@@ -22,7 +22,7 @@ pub fn render_html_fragment(
 
 ///|
 pub fn render_html_document(
-  html_attrs : HtmlAttrs,
+  attrs : Attrs,
   head : Array[SexpNode],
   body : Array[SexpNode],
   doctype : String?,
@@ -31,7 +31,7 @@ pub fn render_html_document(
   if doctype is Some(value) {
     builder <+ "<!DOCTYPE \{value}>\n"
   }
-  builder.write_string(render_open_tag("html", html_attrs))
+  builder.write_string(render_open_tag("html", attrs))
   builder <+ "\n  <head>"
   push_rendered_lines(builder, head, "    ")
   builder <+ "\n  </head>\n  <body>"
@@ -41,7 +41,7 @@ pub fn render_html_document(
 }
 
 ///|
-pub fn render_open_tag(tag : String, attrs : HtmlAttrs) -> String {
+pub fn render_open_tag(tag : String, attrs : Attrs) -> String {
   let builder = StringBuilder()
   builder <+ "<\{tag}"
   append_serialized_attrs(builder, attrs)
@@ -50,16 +50,12 @@ pub fn render_open_tag(tag : String, attrs : HtmlAttrs) -> String {
 }
 
 ///|
-pub fn HtmlAttrs::upsert(
-  attrs : HtmlAttrs,
-  name : String,
-  value : String?,
-) -> Unit {
+pub fn Attrs::upsert(attrs : Attrs, name : String, value : String?) -> Unit {
   attrs.0[name] = value
 }
 
 ///|
-pub fn HtmlAttrs::append_class(self : HtmlAttrs, class_name : String) -> Unit {
+pub fn Attrs::append_class(self : Attrs, class_name : String) -> Unit {
   let attrs = self.0
   match attrs.get("class") {
     Some(Some(value)) => attrs["class"] = Some(value + " " + class_name)
@@ -72,7 +68,7 @@ fn SexpNode::render_html(self : SexpNode) -> String {
   match self {
     Text(text) => escape_html_text(text)
     Comment(text) => "<!-- " + text + " -->"
-    RawHtml(html) => html
+    Raw(content) => content
     Element(tag, attrs, children) => render_element(tag, attrs, children)
   }
 }
@@ -95,7 +91,7 @@ fn push_rendered_lines(
 ///|
 fn render_element(
   tag : String,
-  attrs : HtmlAttrs,
+  attrs : Attrs,
   children : Array[SexpNode],
 ) -> String {
   guard !is_void_element_name(tag) else { return render_open_tag(tag, attrs) }
@@ -111,7 +107,7 @@ fn render_element(
 }
 
 ///|
-fn append_serialized_attrs(builder : StringBuilder, attrs : HtmlAttrs) -> Unit {
+fn append_serialized_attrs(builder : StringBuilder, attrs : Attrs) -> Unit {
   for name, value in attrs.0 {
     match value {
       None => builder <+ " \{name}"
