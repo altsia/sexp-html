@@ -4,7 +4,6 @@ version = "0.4.0"
 
 import {
   "Milky2018/html@0.1.2",
-  "kokic/talcparsec@0.1.1",
 }
 
 readme = "README.md"

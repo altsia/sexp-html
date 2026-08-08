@@ -32,10 +32,10 @@ pub fn parse_sexp_html(source : String) -> Result[Array[SexpNode], String] {
 }
 
 ///|
-/// Parses top-level nodes, where attributes are not valid and whitespace only
-/// separates neighboring terms.
+/// Parses top-level nodes. Leading and trailing document whitespace is
+/// structural and dropped; whitespace between top-level nodes is content.
 fn parse_document(start : Cursor) -> Result[Array[SexpNode], String] {
-  let nodes : Array[SexpNode] = []
+  let nodes : Array[(SexpNode, Bool)] = []
   let mut cursor = start.skip_whitespace()
   while !cursor.is_end() {
     if cursor.peek().map_or(false, is_sexp_close_paren) {
@@ -43,18 +43,25 @@ fn parse_document(start : Cursor) -> Result[Array[SexpNode], String] {
     }
     match parse_node(cursor) {
       Ok((parsed_nodes, next)) => {
-        append_node_values(nodes, parsed_nodes)
-        cursor = next.skip_whitespace()
+        nodes.append(parsed_nodes)
+        cursor = next
       }
       Err(error) => return Err(error)
     }
   }
-  Ok(nodes)
+  while !nodes.is_empty() {
+    match nodes[nodes.length() - 1] {
+      (Text(text), true) if text.trim().is_empty() => ignore(nodes.pop())
+      _ => break
+    }
+  }
+  Ok(nodes.map(pair => pair.0))
 }
 
 ///|
-/// Parses one root/child item. Text nodes carry a trim flag so later attribute
-/// forms can remove separator whitespace that belonged to syntax, not content.
+/// Parses one root/child item. Bare text nodes carry a flag so an immediately
+/// following attribute form can trim their structural trailing whitespace;
+/// explicit raw text and space forms are never trimmed.
 fn parse_node(
   cursor : Cursor,
 ) -> Result[(Array[(SexpNode, Bool)], Cursor), String] {
@@ -86,18 +93,18 @@ fn parse_list_form(open : Cursor) -> Result[(ParsedListForm, Cursor), String] {
 ///|
 fn parse_list_form_head(open : Cursor) -> Result[(ParsedHead, Cursor), String] {
   let head_start = open.advance_code_units(1).skip_whitespace()
-  match head_start.peek() {
-    None => return Err(open.error("unterminated list"))
-    Some(ch) if is_sexp_close_paren(ch) =>
-      return Err(open.error("empty list is invalid"))
-    _ => ()
+  guard head_start.peek() is Some(ch) else {
+    return Err(open.error("unterminated list"))
+  }
+  guard !is_sexp_close_paren(ch) else {
+    return Err(open.error("empty list is invalid"))
   }
 
   let (head, after_head) = parse_head(head_start)
-  if head.is_empty() {
+  guard !head.is_empty() else {
     return Err(head_start.error("list head cannot be empty"))
   }
-  ParsedHead::parse(head, after_head.index).map(parsed_head => {
+  ParsedHead::parse(head, after_head).map(parsed_head => {
     (parsed_head, after_head)
   })
 }
@@ -106,7 +113,7 @@ fn parse_list_form_head(open : Cursor) -> Result[(ParsedHead, Cursor), String] {
 /// Classifies a head token into syntax forms: `%`, `#`, `~`, `~tag`, `:attr`, or element.
 fn ParsedHead::parse(
   head : String,
-  after_head : Int,
+  after_head : Cursor,
 ) -> Result[ParsedHead, String] {
   match head {
     "%" => Ok(CommentHead)
@@ -122,11 +129,11 @@ fn ParsedHead::parse(
 ///|
 fn ParsedHead::parse_spaced_element(
   head : String,
-  after_head : Int,
+  after_head : Cursor,
 ) -> Result[ParsedHead, String] {
   let tag = head.sub(start=1).to_owned()
   if tag.is_empty() {
-    return Err(error_at(after_head, "empty ~ tag must use the exact form (~)"))
+    return Err(after_head.error("empty ~ tag must use the exact form (~)"))
   }
   Ok(SpacedElementHead(tag))
 }
@@ -134,11 +141,11 @@ fn ParsedHead::parse_spaced_element(
 ///|
 fn ParsedHead::parse_attribute(
   head : String,
-  after_head : Int,
+  after_head : Cursor,
 ) -> Result[ParsedHead, String] {
   let name = head.sub(start=1).to_owned()
   if name.is_empty() {
-    return Err(error_at(after_head, "attribute name cannot be empty"))
+    return Err(after_head.error("attribute name cannot be empty"))
   }
   Ok(AttributeHead(name))
 }
@@ -179,17 +186,12 @@ fn parse_comment(
 }
 
 ///|
-/// Parses `(# payload)`. At most one whitespace char after `#` is syntax
-/// separator; any further whitespace is literal raw text.
+/// Parses `(# payload)`. The content after `#` is literal and verbatim: no
+/// whitespace is consumed as a separator, only `\(` and `\)` are unescaped.
 fn parse_raw_text(
   after_head : Cursor,
 ) -> Result[(ParsedListForm, Cursor), String] {
-  let start = if after_head.peek().map_or(false, ch => ch.is_whitespace()) {
-    after_head.advance_code_units(1)
-  } else {
-    after_head
-  }
-  parse_raw_text_payload(start).map(result => {
+  parse_raw_text_payload(after_head).map(result => {
     let (content, next) = result
     (Nodes([(Text(content), false)]), next)
   })
@@ -200,12 +202,13 @@ fn parse_raw_text(
 /// `~tag` remains the only spaced element form.
 fn parse_space(after_head : Cursor) -> Result[(ParsedListForm, Cursor), String] {
   let cursor = after_head.skip_whitespace()
-  match cursor.peek() {
-    None => Err(after_head.error("unterminated (~) form"))
-    Some(ch) if is_sexp_close_paren(ch) =>
-      Ok((Nodes([(Text(" "), false)]), cursor.advance_code_units(1)))
-    _ => Err(cursor.error("(~) cannot contain attributes or children"))
+  guard cursor.peek() is Some(ch) else {
+    return Err(cursor.error("unterminated (~) form"))
   }
+  guard is_sexp_close_paren(ch) else {
+    return Err(cursor.error("(~) cannot contain attributes or children"))
+  }
+  Ok((Nodes([(Text(" "), false)]), cursor.advance_code_units(1)))
 }
 
 ///|
@@ -216,16 +219,16 @@ fn parse_attribute(
   name : String,
 ) -> Result[(ParsedListForm, Cursor), String] {
   let cursor = after_head.skip_whitespace()
-  match cursor.peek() {
-    None => Err(after_head.error("unterminated attribute"))
-    Some(ch) if is_sexp_close_paren(ch) =>
-      Ok((Attr(name, None), cursor.advance_code_units(1)))
-    _ =>
-      parse_attribute_value_payload(cursor).map(result => {
-        let (value, next) = result
-        (Attr(name, Some(value)), next)
-      })
+  guard cursor.peek() is Some(ch) else {
+    return Err(cursor.error("unterminated attribute"))
   }
+  guard !is_sexp_close_paren(ch) else {
+    return Ok((Attr(name, None), cursor.advance_code_units(1)))
+  }
+  parse_attribute_value_payload(cursor).map(result => {
+    let (value, next) = result
+    (Attr(name, Some(value)), next)
+  })
 }
 
 ///|
@@ -238,8 +241,8 @@ fn parse_element(
 
 ///|
 /// Parses an element body, collecting attributes and children in source order.
-/// Attribute forms may appear after children; the final AST stores attributes on
-/// the element and trims separator text that preceded those late attributes.
+/// Attribute forms may appear anywhere; they are hoisted onto the element and
+/// the whitespace immediately around them is structural (dropped).
 fn parse_element_with_spacing(
   after_head : Cursor,
   tag : String,
@@ -254,13 +257,13 @@ fn parse_element_with_spacing(
         return build_element_result(tag, attrs, children, spaced, cursor)
       Some(ch) if is_sexp_open_paren(ch) =>
         match parse_element_list_item(cursor, attrs, children) {
-          Ok(next) => cursor = next.skip_whitespace()
+          Ok(next) => cursor = next
           Err(error) => return Err(error)
         }
-      _ => cursor = parse_element_text(cursor, children).skip_whitespace()
+      _ => cursor = parse_element_text(cursor, children)
     }
   }
-  Err(after_head.error("unterminated element <" + tag + ">"))
+  Err(cursor.error("unterminated element <" + tag + ">"))
 }
 
 ///|
@@ -291,8 +294,9 @@ fn build_element_result(
 }
 
 ///|
-/// Handles one parenthesized item inside an element, either merging an attribute
-/// into the element attrs or appending child nodes.
+/// Handles one parenthesized item inside an element. Attribute forms are
+/// hoisted onto the element and their surrounding whitespace is structural;
+/// child nodes are appended as content.
 fn parse_element_list_item(
   cursor : Cursor,
   attrs : HtmlAttrs,
@@ -303,7 +307,7 @@ fn parse_element_list_item(
       (Attr(name, value), next) => {
         trim_trailing_text_before_attribute(children)
         HtmlAttrs::upsert(attrs, name, value)
-        Ok(next)
+        Ok(next.skip_whitespace())
       }
       (Nodes(nodes), next) => {
         append_parsed_child_nodes(children, nodes)
@@ -327,7 +331,15 @@ fn parse_element_text(
 
 ///|
 /// Reads an unparenthesized head token up to whitespace or a list boundary.
+/// The marker heads `#` and `%` are always a single character: their payload
+/// follows immediately and is not token-delimited.
 fn parse_head(start : Cursor) -> (String, Cursor) {
+  if start.index < start.code_unit_length() {
+    let ch = start.unsafe_char_at(start.index)
+    if ch == '#' || ch == '%' {
+      return (start.slice_until(start.index + 1), start.advance_code_units(1))
+    }
+  }
   let mut index = start.index
   while index < start.code_unit_length() {
     let ch = start.unsafe_char_at(index)
@@ -350,8 +362,44 @@ priv enum PayloadScanMode {
 
 ///|
 /// Parses ordinary text until an unescaped list boundary. Only `\(` and `\)`
-/// are unescaped; other backslashes remain literal text.
+/// are unescaped; other backslashes remain literal text. Within a text term,
+/// every run of whitespace collapses to a single space.
+///
+/// A fast path scans UTF-16 code units directly and extracts the term with
+/// `sub` when no escape or whitespace run requires transformation.
 fn parse_text(start : Cursor) -> (String, Cursor) {
+  let source = start.source
+  let length = start.code_unit_length()
+  let mut index = start.index
+  while index < length {
+    let code = source.code_unit_at(index).to_int()
+    if code < 0x80 {
+      if code == 0x28 || code == 0x29 {
+        break
+      }
+      if code == 0x5C || (code >= 0x09 && code <= 0x0D) {
+        return parse_text_with_transform(start)
+      }
+      if code == 0x20 &&
+        index + 1 < length &&
+        is_ascii_whitespace_code(source.code_unit_at(index + 1).to_int()) {
+        return parse_text_with_transform(start)
+      }
+      index = index + 1
+    } else {
+      let ch = source.get_char(index).unwrap()
+      if ch.is_whitespace() {
+        return parse_text_with_transform(start)
+      }
+      index = index + ch.utf16_len()
+    }
+  }
+  (start.slice_until(index), start.with_index(index))
+}
+
+///|
+/// Slow path of `parse_text`: resolves `\(`/`\)` and collapses whitespace runs.
+fn parse_text_with_transform(start : Cursor) -> (String, Cursor) {
   let buffer : Array[Char] = []
   let mut index = start.index
   while index < start.code_unit_length() {
@@ -366,6 +414,13 @@ fn parse_text(start : Cursor) -> (String, Cursor) {
       }
     } else if is_sexp_paren(ch) {
       break
+    } else if ch.is_whitespace() {
+      buffer.push(' ')
+      while index < start.code_unit_length() &&
+            start.unsafe_char_at(index).is_whitespace() {
+        index = start.next_char_index(index)
+      }
+      continue
     }
     buffer.push(ch)
     index = start.next_char_index(index)
@@ -398,7 +453,56 @@ fn parse_attribute_value_payload(
 ///|
 /// Shared payload scanner for delimited text forms. It centralizes `\(`/`\)`
 /// handling while keeping each syntax form's paren rules explicit in `mode`.
+///
+/// A fast path scans UTF-16 code units directly and extracts the payload with
+/// `sub` when no escape is present; `scan_payload_with_transform` resolves
+/// escapes and (for comments) balanced parentheses.
 fn scan_payload(
+  start : Cursor,
+  mode : PayloadScanMode,
+) -> Result[(String, Cursor), String] {
+  let source = start.source
+  let length = start.code_unit_length()
+  let mut index = start.index
+  let mut comment_depth = 0
+  while index < length {
+    let code = source.code_unit_at(index).to_int()
+    if code == 0x5C {
+      break
+    }
+    match code {
+      0x28 =>
+        match mode {
+          CommentPayload => comment_depth = comment_depth + 1
+          AttributeValuePayload =>
+            return Err(
+              start
+              .with_index(index)
+              .error("attribute values must be plain text"),
+            )
+          RawTextPayload => ()
+        }
+      0x29 =>
+        match mode {
+          CommentPayload => {
+            if comment_depth == 0 {
+              return Ok((start.slice_until(index), start.with_index(index + 1)))
+            }
+            comment_depth = comment_depth - 1
+          }
+          RawTextPayload | AttributeValuePayload =>
+            return Ok((start.slice_until(index), start.with_index(index + 1)))
+        }
+      _ => ()
+    }
+    index = index + 1
+  }
+  scan_payload_with_transform(start, mode)
+}
+
+///|
+/// Slow path of `scan_payload`: resolves `\(`/`\)` and tracks comment balance.
+fn scan_payload_with_transform(
   start : Cursor,
   mode : PayloadScanMode,
 ) -> Result[(String, Cursor), String] {
@@ -427,8 +531,10 @@ fn scan_payload(
       ch if is_sexp_close_paren(ch) =>
         match mode {
           CommentPayload => {
-            guard comment_depth == 0 else { comment_depth = comment_depth - 1 }
-            return Ok((text_from_buffer(buffer), start.with_index(index + 1)))
+            if comment_depth == 0 {
+              return Ok((text_from_buffer(buffer), start.with_index(index + 1)))
+            }
+            comment_depth = comment_depth - 1
           }
           RawTextPayload | AttributeValuePayload =>
             return Ok((text_from_buffer(buffer), start.with_index(index + 1)))
@@ -438,7 +544,7 @@ fn scan_payload(
     buffer.push(ch)
     index = start.next_char_index(index)
   }
-  Err(start.error(mode.unterminated_message()))
+  Err(start.with_index(index).error(mode.unterminated_message()))
 }
 
 ///|
@@ -472,14 +578,6 @@ fn consume_escaped_paren_into(
 }
 
 ///|
-fn append_node_values(
-  target : Array[SexpNode],
-  nodes : Array[(SexpNode, Bool)],
-) -> Unit {
-  target.append(strip_parse_flags(nodes))
-}
-
-///|
 fn append_parsed_child_nodes(
   target : Array[(SexpNode, Bool)],
   nodes : Array[(SexpNode, Bool)],
@@ -495,15 +593,22 @@ fn strip_parse_flags(nodes : Array[NodeWithTrimBeforeAttr]) -> Array[SexpNode] {
 }
 
 ///|
-/// If an attribute appears after text, trim or remove the immediately preceding
-/// text node when it only carried separator whitespace before that attribute.
+/// If an attribute follows a normalized bare text term, its trailing whitespace
+/// is structural and is trimmed (or the term removed if it was only whitespace).
 fn trim_trailing_text_before_attribute(
   children : Array[(SexpNode, Bool)],
 ) -> Unit {
   guard !children.is_empty() else { return }
   let last_index = children.length() - 1
-  guard children[last_index] is (Text(text), true) else {  }
-  let trimmed = text.trim_end().to_owned()
-  guard trimmed.is_empty() else { children[last_index] = (Text(trimmed), true) }
-  children.truncate(last_index)
+  match children[last_index] {
+    (Text(text), true) => {
+      let trimmed = text.trim_end().to_owned()
+      if trimmed.is_empty() {
+        children.truncate(last_index)
+      } else {
+        children[last_index] = (Text(trimmed), true)
+      }
+    }
+    _ => ()
+  }
 }

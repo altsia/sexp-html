@@ -52,11 +52,24 @@ fn Cursor::with_index(self : Cursor, index : Int) -> Cursor {
 ///|
 fn Cursor::skip_whitespace(self : Cursor) -> Cursor {
   let mut index = self.index
-  while index < self.code_unit_length() &&
-        self.unsafe_char_at(index).is_whitespace() {
-    index = self.next_char_index(index)
+  while index < self.code_unit_length() {
+    let code = self.source.code_unit_at(index).to_int()
+    if code < 0x80 {
+      guard is_ascii_whitespace_code(code) else { break }
+      index = index + 1
+    } else {
+      let ch = self.source.get_char(index).unwrap()
+      guard ch.is_whitespace() else { break }
+      index = index + ch.utf16_len()
+    }
   }
   self.with_index(index)
+}
+
+///|
+/// True for the ASCII whitespace code units: tab through carriage return and space.
+fn is_ascii_whitespace_code(code : Int) -> Bool {
+  code == 0x20 || (code >= 0x09 && code <= 0x0D)
 }
 
 ///|
@@ -66,10 +79,25 @@ fn Cursor::slice_until(self : Cursor, end : Int) -> String {
 
 ///|
 fn Cursor::error(self : Cursor, message : String) -> String {
-  error_at(self.index, message)
+  let (line, column) = line_column_at(self.source, self.index)
+  "parse error at line \{line}, column \{column}: \{message}"
 }
 
 ///|
-fn error_at(index : Int, message : String) -> String {
-  "parse error at offset \{index}: \{message}"
+/// Computes the 1-based line and column of a UTF-16 code-unit offset in `source`.
+fn line_column_at(source : String, offset : Int) -> (Int, Int) {
+  let mut line = 1
+  let mut column = 1
+  let mut index = 0
+  while index < offset {
+    guard source.get_char(index) is Some(ch) else { break }
+    if ch == '\n' {
+      line = line + 1
+      column = 1
+    } else {
+      column = column + 1
+    }
+    index = index + ch.utf16_len()
+  }
+  (line, column)
 }

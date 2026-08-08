@@ -20,15 +20,21 @@ test "comment syntax trims separator whitespace and requires balanced parens" {
 
 ///|
 test "nested element with attribute escaping" {
-  let input = "(p One hundred million and two thousand years from now\n  (span (:style font-family: \"Alegreya Sans SC\", sans-serif) 爱してる))"
-  let expected = "<p>One hundred million and two thousand years from now\n  <span style=\"font-family: &quot;Alegreya Sans SC&quot;, sans-serif\">爱してる</span></p>"
+  let input =
+    #|(p One hundred million and two thousand years from now
+    #|  (span (:style font-family: "Alegreya Sans SC", sans-serif) 爱してる))
+  let expected = "<p>One hundred million and two thousand years from now <span style=\"font-family: &quot;Alegreya Sans SC&quot;, sans-serif\">爱してる</span></p>"
   @test.assert_eq(sexp_to_html(input), Ok(expected))
 }
 
 ///|
 test "escaped parentheses and boolean attribute" {
-  let input = "(details (:open)\n  (summary every day every night)\n  \\(I've been waiting to share my love with you\\)\n  you give light into the darkness skies)"
-  let expected = "<details open><summary>every day every night</summary>(I've been waiting to share my love with you)\n  you give light into the darkness skies</details>"
+  let input =
+    #|(details (:open)
+    #|  (summary every day every night)
+    #|  \(I've been waiting to share my love with you\)
+    #|  you give light into the darkness skies)
+  let expected = "<details open><summary>every day every night</summary> (I've been waiting to share my love with you) you give light into the darkness skies</details>"
   @test.assert_eq(sexp_to_html(input), Ok(expected))
 }
 
@@ -44,7 +50,7 @@ test "payload scanner preserves shared escape behavior" {
   )
   @test.assert_eq(
     sexp_to_html("(p (# hello\\)world))"),
-    Ok("<p>hello)world</p>"),
+    Ok("<p> hello)world</p>"),
   )
   @test.assert_eq(
     sexp_to_html("(div (:title hello\\(x\\)) child)"),
@@ -106,36 +112,87 @@ test "spaced element form adds spaces on both sides" {
 }
 
 ///|
-test "raw text form preserves leading whitespace and escaped parens" {
-  let input = "(p (# \\(Hello\\)))"
-  let expected = "<p>(Hello)</p>"
-  @test.assert_eq(sexp_to_html(input), Ok(expected))
+test "whitespace runs collapse to a single space" {
+  @test.assert_eq(sexp_to_html("(p one   two)"), Ok("<p>one two</p>"))
+  let line_input =
+    #|(p line1
+    #|line2)
+  @test.assert_eq(sexp_to_html(line_input), Ok("<p>line1 line2</p>"))
+  @test.assert_eq(sexp_to_html("(p  x)"), Ok("<p>x</p>"))
+  let indent_input =
+    #|(p
+    #|  (b c))
+  @test.assert_eq(sexp_to_html(indent_input), Ok("<p><b>c</b></p>"))
+}
+
+///|
+test "vertical tab and form feed whitespace collapse too" {
+  @test.assert_eq(sexp_to_html("(p a\u{000B}b)"), Ok("<p>a b</p>"))
+  @test.assert_eq(sexp_to_html("(p a\u{000C}b)"), Ok("<p>a b</p>"))
+}
+
+///|
+test "space before an element is content, adjacency is no space" {
+  @test.assert_eq(sexp_to_html("(p a (b c))"), Ok("<p>a <b>c</b></p>"))
+  @test.assert_eq(sexp_to_html("(p a(b c))"), Ok("<p>a<b>c</b></p>"))
+  @test.assert_eq(sexp_to_html("(p (b c) a)"), Ok("<p><b>c</b> a</p>"))
+  @test.assert_eq(sexp_to_html("(p (b c)a)"), Ok("<p><b>c</b>a</p>"))
+  @test.assert_eq(
+    sexp_to_html("(p (b c) (d e))"),
+    Ok("<p><b>c</b> <d>e</d></p>"),
+  )
+  @test.assert_eq(sexp_to_html("(p (b c)(d e))"), Ok("<p><b>c</b><d>e</d></p>"))
+}
+
+///|
+test "trailing space in a text term is content" {
+  @test.assert_eq(sexp_to_html("(p x )"), Ok("<p>x </p>"))
+}
+
+///|
+test "raw text is fully verbatim with no separator consumption" {
+  @test.assert_eq(sexp_to_html("(p (#hello))"), Ok("<p>hello</p>"))
+  @test.assert_eq(sexp_to_html("(p (# hello))"), Ok("<p> hello</p>"))
+  @test.assert_eq(sexp_to_html("(p (#\\(Hello\\)))"), Ok("<p>(Hello)</p>"))
+  @test.assert_eq(sexp_to_html("(p (# \\(Hello\\)))"), Ok("<p> (Hello)</p>"))
+  @test.assert_eq(sexp_to_html("(p (# a(b))"), Ok("<p> a(b</p>"))
 }
 
 ///|
 test "raw text empty edge cases are valid" {
   @test.assert_eq(sexp_to_html("(p (#))"), Ok("<p></p>"))
-  @test.assert_eq(sexp_to_html("(p (# ))"), Ok("<p></p>"))
+  @test.assert_eq(sexp_to_html("(p (# ))"), Ok("<p> </p>"))
 }
 
 ///|
-test "raw text consumes only one separator whitespace" {
-  let input = "(p (#   world))"
-  let expected = "<p>  world</p>"
-  @test.assert_eq(sexp_to_html(input), Ok(expected))
-}
-
-///|
-test "raw text separator may be any whitespace character" {
-  @test.assert_eq(sexp_to_html("(p (#\nworld))"), Ok("<p>world</p>"))
-  @test.assert_eq(sexp_to_html("(p (# \nworld))"), Ok("<p>\nworld</p>"))
+test "raw text preserves every whitespace character verbatim" {
+  @test.assert_eq(sexp_to_html("(p (#   world))"), Ok("<p>   world</p>"))
+  let nl_input =
+    #|(p (#
+    #|world))
+  @test.assert_eq(sexp_to_html(nl_input), Ok("<p>\nworld</p>"))
+  let space_nl_input =
+    #|(p (# 
+    #|world))
+  @test.assert_eq(sexp_to_html(space_nl_input), Ok("<p> \nworld</p>"))
 }
 
 ///|
 test "raw text remains literal before later attributes" {
   let input = "(div (#  ) (:class x))"
-  let expected = "<div class=\"x\"> </div>"
+  let expected = "<div class=\"x\">  </div>"
   @test.assert_eq(sexp_to_html(input), Ok(expected))
+}
+
+///|
+test "document whitespace between terms is content but edges are structural" {
+  @test.assert_eq(sexp_to_html("(p a) (p b)"), Ok("<p>a</p> <p>b</p>"))
+  @test.assert_eq(sexp_to_html("(p a)(p b)"), Ok("<p>a</p><p>b</p>"))
+  @test.assert_eq(sexp_to_html("   (p a)   "), Ok("<p>a</p>"))
+  @test.assert_eq(
+    sexp_to_html("(p a) between (p b)"),
+    Ok("<p>a</p> between <p>b</p>"),
+  )
 }
 
 ///|
@@ -231,35 +288,45 @@ test "html fragment to sexp element" {
 ///|
 test "html fragment with nested content and attrs" {
   let input = "<details open><summary>every day every night</summary>(I've been waiting)</details>"
-  let expected = "(details (:open) (summary every day every night) \\(I've been waiting\\))"
+  let expected = "(details (:open) (summary every day every night)\\(I've been waiting\\))"
   @test.assert_eq(html_to_sexp(input), Ok(expected))
 }
 
 ///|
 test "leading spaces become explicit space forms" {
   let input = "<p><span>Hello</span> world</p>"
-  let expected = "(p (span Hello) (#  world))"
+  let expected = "(p (span Hello)(# world))"
   @test.assert_eq(html_to_sexp(input), Ok(expected))
 }
 
 ///|
 test "html full document is flattened back to fragment" {
   let input = "<!DOCTYPE html><html><head><title>Test</title></head><body><p>World</p></body></html>"
-  let expected = "(title Test)\n(p World)"
+  let expected = "(title Test)(p World)"
   @test.assert_eq(html_to_sexp(input), Ok(expected))
 }
 
 ///|
 test "leading newline becomes raw text form" {
-  let input = "<p><span>Hello</span>\nworld</p>"
-  let expected = "(p (span Hello) (# \nworld))"
+  let input =
+    #|<p><span>Hello</span>
+    #|world</p>
+  let expected =
+    #|(p (span Hello)(#
+    #|world))
   @test.assert_eq(html_to_sexp(input), Ok(expected))
 }
 
 ///|
 test "whitespace-only text nodes use canonical raw text forms" {
-  @test.assert_eq(html_to_sexp("<p> </p>"), Ok("(p (#  ))"))
-  @test.assert_eq(html_to_sexp("<p>\n</p>"), Ok("(p (# \n))"))
+  @test.assert_eq(html_to_sexp("<p> </p>"), Ok("(p (# ))"))
+  let input =
+    #|<p>
+    #|</p>
+  let expected =
+    #|(p (#
+    #|))
+  @test.assert_eq(html_to_sexp(input), Ok(expected))
 }
 
 ///|
@@ -288,6 +355,150 @@ test "empty html attr values canonicalize to minimized attrs" {
 ///|
 test "parser preserves non-BMP characters" {
   @test.assert_eq(sexp_to_html("(p hi😀there)"), Ok("<p>hi😀there</p>"))
+}
+
+///|
+test "percent head is a single character" {
+  @test.assert_eq(sexp_to_html("(%hello)"), Ok("<!-- hello -->"))
+  @test.assert_eq(sexp_to_html("(% hello)"), Ok("<!-- hello -->"))
+}
+
+///|
+test "raw text standalone verbatim forms" {
+  @test.assert_eq(sexp_to_html("(p (#))"), Ok("<p></p>"))
+  @test.assert_eq(sexp_to_html("(p (# ))"), Ok("<p> </p>"))
+  @test.assert_eq(sexp_to_html("(p (#  ))"), Ok("<p>  </p>"))
+}
+
+///|
+test "mixed raw and collapsed text" {
+  @test.assert_eq(sexp_to_html("(p (# world)  x)"), Ok("<p> world x</p>"))
+  @test.assert_eq(sexp_to_html("(p  x  )"), Ok("<p>x </p>"))
+}
+
+///|
+test "attribute values keep internal whitespace" {
+  @test.assert_eq(
+    sexp_to_html("(div (:title a  b))"),
+    Ok("<div title=\"a  b\"></div>"),
+  )
+  @test.assert_eq(check_roundtrip("<div title=\"a  b\"></div>"), Ok(()))
+}
+
+///|
+test "space forms inside elements" {
+  @test.assert_eq(sexp_to_html("(p a(~)b)"), Ok("<p>a b</p>"))
+  @test.assert_eq(sexp_to_html("(p (~)x)"), Ok("<p> x</p>"))
+}
+
+///|
+test "html_to_sexp emits safe adjacency" {
+  @test.assert_eq(html_to_sexp("<p>a<b>c</b></p>"), Ok("(p a(b c))"))
+  @test.assert_eq(html_to_sexp("<p>a <b>c</b></p>"), Ok("(p a (b c))"))
+  @test.assert_eq(
+    html_to_sexp("<p class=\"x\">Hello</p>"),
+    Ok("(p (:class x) Hello)"),
+  )
+}
+
+///|
+test "comment trailing backslash is rejected" {
+  match html_to_sexp("<!-- a\\ -->") {
+    Ok(_) => fail("expected an error")
+    Err(error) => @test.assert_eq(error.contains("backslash"), true)
+  }
+}
+
+///|
+test "parse errors report line and column" {
+  match sexp_to_html("(p\n  hello\nworld") {
+    Ok(_) => fail("expected an error")
+    Err(e) =>
+      @test.assert_eq(
+        e, "parse error at line 3, column 6: unterminated element <p>",
+      )
+  }
+  match sexp_to_html("(br hello)") {
+    Ok(_) => fail("expected an error")
+    Err(e) =>
+      @test.assert_eq(
+        e, "parse error at line 1, column 10: void element <br> cannot have child nodes",
+      )
+  }
+  match sexp_to_html("(())") {
+    Ok(_) => fail("expected an error")
+    Err(e) =>
+      @test.assert_eq(
+        e, "parse error at line 1, column 2: list head cannot be empty",
+      )
+  }
+  match sexp_to_html("(p (# hello") {
+    Ok(_) => fail("expected an error")
+    Err(e) =>
+      @test.assert_eq(
+        e, "parse error at line 1, column 12: unterminated (# ...) text node",
+      )
+  }
+  match sexp_to_html("(p a) unexpected ')'") {
+    Ok(_) => fail("expected an error")
+    Err(e) =>
+      @test.assert_eq(e, "parse error at line 1, column 19: unexpected ')'")
+  }
+}
+
+///|
+test "html_to_sexp uses bare text only when it round-trips" {
+  @test.assert_eq(html_to_sexp("<p>Hello world</p>"), Ok("(p Hello world)"))
+  @test.assert_eq(html_to_sexp("<p>a  b</p>"), Ok("(p (#a  b))"))
+  @test.assert_eq(html_to_sexp("<p>a\\b</p>"), Ok("(p a\\b)"))
+}
+
+///|
+test "trailing backslash text is rejected as unrepresentable" {
+  match html_to_sexp("<p>a\\</p>") {
+    Ok(_) => fail("expected an error")
+    Err(error) => @test.assert_eq(error.contains("backslash"), true)
+  }
+}
+
+///|
+test "html to sexp to html round-trips losslessly" {
+  @test.assert_eq(check_roundtrip("<p>a<b>c</b>d</p>"), Ok(()))
+  @test.assert_eq(check_roundtrip("<p>a <b>c</b></p>"), Ok(()))
+  @test.assert_eq(check_roundtrip("<p>a<b>c</b> d</p>"), Ok(()))
+  @test.assert_eq(check_roundtrip("<p>a  b</p>"), Ok(()))
+  @test.assert_eq(check_roundtrip("<p> a</p>"), Ok(()))
+  @test.assert_eq(check_roundtrip("<p>a </p>"), Ok(()))
+  @test.assert_eq(check_roundtrip("<p>Hello <em>World</em> again</p>"), Ok(()))
+  @test.assert_eq(check_roundtrip("<p>a\\(b</p>"), Ok(()))
+  @test.assert_eq(check_roundtrip("<!-- hello (b world) -->"), Ok(()))
+  @test.assert_eq(check_roundtrip("<div title=\"(x)\"></div>"), Ok(()))
+  @test.assert_eq(
+    check_roundtrip("<p class=\"a\">x <span>y</span></p>"),
+    Ok(()),
+  )
+  let pre_input =
+    #|<pre>line1
+    #|line2
+    #|</pre>
+  @test.assert_eq(check_roundtrip(pre_input), Ok(()))
+}
+
+///|
+fn check_roundtrip(input : String) -> Result[Unit, String] {
+  match html_to_sexp(input) {
+    Err(e) => Err("html_to_sexp failed: " + e)
+    Ok(sexp) =>
+      match sexp_to_html(sexp) {
+        Err(e) => Err("sexp_to_html failed: " + e + " from " + sexp)
+        Ok(html) =>
+          if html == input {
+            Ok(())
+          } else {
+            Err("roundtrip mismatch: \{html} != \{input}")
+          }
+      }
+  }
 }
 
 ///|

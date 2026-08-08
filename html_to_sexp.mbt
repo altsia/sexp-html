@@ -9,7 +9,7 @@ fn serialize_sexp_fragment(
   document : @html5.Document,
 ) -> Result[String, String] {
   let node_ids = document.get_children(0)
-  render_sexp_fragment_terms(document, node_ids).map(terms => terms.join("\n"))
+  render_sexp_fragment_terms(document, node_ids).map(terms => terms.join(""))
 }
 
 ///|
@@ -42,9 +42,10 @@ fn render_document_element_as_fragment_terms(
       let terms : Array[String] = []
       for child_id in element.children {
         let node_ids = html_document_fragment_child_ids(document, child_id)
-        let result = append_sexp_fragment_terms(document, terms, node_ids)
-        guard result is Err(error) else {  }
-        return Err(error)
+        match append_sexp_fragment_terms(document, terms, node_ids) {
+          Err(error) => return Err(error)
+          Ok(_) => ()
+        }
       }
       Ok(terms)
     }
@@ -87,7 +88,7 @@ fn render_node_as_sexp_term(
   match document.get_node(node_id) {
     Some(@html5.TextNode(text)) => render_text_as_sexp_term(text)
     Some(@html5.CommentNode(text)) =>
-      Ok(Some(render_comment_as_sexp_term(text)))
+      render_comment_as_sexp_term(text).map(comment => Some(comment))
     Some(@html5.ElementNode(element)) =>
       render_element_as_sexp_term(document, node_id, element)
     Some(@html5.DocumentTypeNode(..)) => Ok(None)
@@ -107,21 +108,54 @@ fn render_nodes_as_sexp_term(
 }
 
 ///|
-/// Serializes one HTML text node. Leading whitespace cannot be represented as a
-/// bare text term, so those nodes use the explicit raw text form.
+/// Serializes one HTML text node. Bare text is only safe when it cannot be
+/// confused with structural whitespace: no leading whitespace and only single
+/// internal space characters. Any other text uses the verbatim raw form.
 fn render_text_as_sexp_term(text : String) -> Result[String?, String] {
-  if !text.is_empty() && !starts_with_whitespace(text) {
-    return Ok(Some(escape_sexp_text(text)))
+  guard !text.is_empty() else { return Ok(None) }
+  guard !text.has_suffix("\\") else {
+    return Err(
+      "unsupported html text: text ending in a backslash is not representable",
+    )
   }
-  Ok(Some(render_raw_text_form(text)))
+  guard can_use_bare_text(text) else {
+    return Ok(Some(render_raw_text_form(text)))
+  }
+  Ok(Some(escape_sexp_text(text)))
+}
+
+///|
+/// A text term may be emitted bare when it survives re-parsing unchanged:
+/// no leading whitespace, and the only whitespace it may contain is single
+/// internal space characters (no tabs, no newlines, no runs of 2+).
+fn can_use_bare_text(text : String) -> Bool {
+  let chars = text.to_array()
+  guard !chars.is_empty() && !chars[0].is_whitespace() else { return false }
+  let mut prev_whitespace = false
+  for ch in chars {
+    if ch.is_whitespace() {
+      if ch != ' ' || prev_whitespace {
+        return false
+      }
+      prev_whitespace = true
+    } else {
+      prev_whitespace = false
+    }
+  }
+  true
 }
 
 ///|
 /// Serializes an HTML comment as `(% ...)`. Canonicalization trims browser
 /// comment whitespace before escaping S-expression parens.
-fn render_comment_as_sexp_term(text : String) -> String {
+fn render_comment_as_sexp_term(text : String) -> Result[String, String] {
   let trimmed = text.trim().to_owned()
-  "(% \{escape_sexp_text(trimmed)})"
+  guard !trimmed.has_suffix("\\") else {
+    return Err(
+      "unsupported html comment: comment ending in a backslash is not representable",
+    )
+  }
+  Ok("(% \{escape_sexp_text(trimmed)})")
 }
 
 ///|
@@ -173,8 +207,10 @@ fn append_child_sexp_terms(
   node_ids : Array[Int],
 ) -> Result[Unit, String] {
   collect_sexp_terms(document, node_ids).map(child_terms => {
-    for term in child_terms {
-      builder.write_char(' ')
+    for index, term in child_terms {
+      if index == 0 {
+        builder.write_char(' ')
+      }
       builder.write_string(term)
     }
   })
@@ -194,18 +230,21 @@ fn html_element_child_ids(
 
 ///|
 /// Serializes an HTML attribute form. Empty values become boolean/minimized
-/// attrs; leading-whitespace values are rejected because they need raw text syntax,
-/// which attributes intentionally do not support.
+/// attrs; leading-whitespace and trailing-backslash values are rejected because
+/// they cannot be represented in the plain-text attribute form.
 fn render_attribute_as_sexp_form(
   name : String,
   value : String,
 ) -> Result[String, String] {
-  if value.is_empty() {
-    return Ok("(:" + name + ")")
-  }
-  if starts_with_whitespace(value) {
+  guard !value.is_empty() else { return Ok("(:" + name + ")") }
+  guard !starts_with_whitespace(value) else {
     return Err(
       "unsupported html attribute: leading whitespace value on " + name,
+    )
+  }
+  guard !value.has_suffix("\\") else {
+    return Err(
+      "unsupported html attribute: trailing backslash value on " + name,
     )
   }
   Ok("(:" + name + " " + escape_sexp_text(value) + ")")
@@ -238,43 +277,29 @@ fn starts_with_whitespace(text : String) -> Bool {
 }
 
 ///|
-/// Emits the explicit raw text form, preserving leading whitespace and other text
-/// that would be ambiguous as a bare S-expression term.
+/// Emits the verbatim raw text form. Content after `#` is literal, so no
+/// separator space is added.
 fn render_raw_text_form(text : String) -> String {
-  "(# " + escape_sexp_text(text) + ")"
+  "(#" + escape_sexp_text(text) + ")"
 }
 
 ///|
 fn join_non_empty_terms(terms : Array[String]) -> String? {
   guard !terms.is_empty() else { return None }
-  Some(terms.join("\n"))
+  Some(terms.join(""))
 }
 
 ///|
 /// Escapes only the characters that are structural in S-expression text terms.
-/// Existing `\(` and `\)` sequences keep their backslash so round-tripping does
-/// not turn an already-escaped paren into a double-escaped literal backslash.
+/// Parens become `\(` / `\)`; backslashes are left as literal text.
 fn escape_sexp_text(text : String) -> String {
   let chars = text.to_array()
   let builder = StringBuilder::new()
-  for index in 0..<chars.length() {
-    let ch = chars[index]
-    if starts_existing_sexp_paren_escape(chars, index) {
-      builder.write_char('\\')
-    }
+  for ch in chars {
     if is_sexp_text_escape_target(ch) {
       builder.write_char('\\')
     }
     builder.write_char(ch)
   }
   builder.to_string()
-}
-
-///|
-/// Returns true when the current backslash is already escaping a paren in the
-/// input text and must itself be preserved in the serialized form.
-fn starts_existing_sexp_paren_escape(chars : Array[Char], index : Int) -> Bool {
-  guard chars[index] == '\\' else { return false }
-  guard index + 1 < chars.length() else { return false }
-  is_sexp_text_escape_target(chars[index + 1])
 }

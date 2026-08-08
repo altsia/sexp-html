@@ -12,18 +12,16 @@
   <!-- I want you to know since you came in my life -->
   ```
 
-- syntactic white spaces between terms will be ignored
+- runs of whitespace inside a text term collapse to a single space
 
   ```sexp
-  (p One hundred million and two thousand years from now 
-    (span (:style font-family: "Alegreya Sans SC", sans-serif) 
+  (p One hundred million and two thousand years from now
+    (span (:style font-family: "Alegreya Sans SC", sans-serif)
             爱してる) )
   ```
 
   ```html
-  <p>One hundred million and two thousand years from now 
-    <span style="font-family: \"Alegreya Sans SC\", sans-serif">爱してる</span>
-  </p>
+  <p>One hundred million and two thousand years from now <span style="font-family: &quot;Alegreya Sans SC&quot;, sans-serif">爱してる</span></p>
   ```
 
 - only parentheses need to be escaped
@@ -36,11 +34,7 @@
   ```
 
   ```html
-  <details open>
-    <summary>every day every night</summary>
-    (I've been waiting to share my love with you)
-    you give light into the darkness skies
-  </details>
+  <details open><summary>every day every night</summary> (I've been waiting to share my love with you) you give light into the darkness skies</details>
   ```
 
 - `(~)` emits a literal space, and `(~tag ...)` emits the normal element with one space on each side
@@ -53,16 +47,26 @@
   <p> <span>hello</span> world</p>
   ```
 
-- `(# ...)` emits an explicit raw text node and preserves the text after `#` exactly, including leading spaces and newlines
-
-  The first whitespace character after `#` is only a separator and is not part of the text payload.
+- `(# ...)` emits a verbatim text node: everything after `#` is literal, including leading spaces and newlines. No whitespace is consumed as a separator.
 
   ```sexp
   (p (span hello) (#  world))
   ```
 
   ```html
-  <p><span>hello</span> world</p>
+  <p><span>hello</span>  world</p>
+  ```
+
+- whitespace you type around an element is content, so adjacency requires no space
+
+  ```sexp
+  (p a (b c))
+  (p a(b c))
+  ```
+
+  ```html
+  <p>a <b>c</b></p>
+  <p>a<b>c</b></p>
   ```
 
 ## Specification

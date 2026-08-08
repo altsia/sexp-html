@@ -86,9 +86,8 @@ fn push_rendered_lines(
   for node in nodes {
     let rendered = render_html_fragment([node])
     for line in rendered.split("\n") {
-      if line.length() > 0 {
-        builder <+ "\n\{indent}\{line}"
-      }
+      guard line.length() > 0 else { continue }
+      builder <+ "\n\{indent}\{line}"
     }
   }
 }

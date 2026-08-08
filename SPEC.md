@@ -20,11 +20,19 @@ It is designed around one rule:
 
 > Structure is delimited only by unescaped `(` and `)`.
 
-Spaces do not split text into separate terms.
+Spaces do not split text into separate terms. Text is greedy: it runs until the
+next unescaped parenthesis.
+
+Whitespace is never ambiguous because it follows one uniform rule, described in
+[§ 2.1](#21-whitespace-model): runs of whitespace inside a text term become a
+single space, and structural whitespace (around list heads and attribute forms,
+and at the document edges) is dropped. When exact whitespace must be produced,
+use the verbatim raw text form `(# ...)` or the space forms `(~)` / `(~tag ...)`.
 
 ## 2. Minimal grammar
 
-The grammar below is intentionally lexical-light. Text is defined by exclusion: anything up to the next unescaped parenthesis.
+The grammar below is intentionally lexical-light. Text is defined by exclusion:
+anything up to the next unescaped parenthesis.
 
 ```ebnf
 document        ::= node*
@@ -35,26 +43,52 @@ list            ::= "(" list-content* ")"
 
 list-content    ::= node
 
-text            ::= char*
+text            ::= bare-text | raw-text
+
+bare-text       ::= char*
+
+raw-text        ::= "(" "#" raw-char* ")"
 
 char            ::= escaped-lparen
                   | escaped-rparen
                   | any character except unescaped "(" or ")"
 
-escaped-lparen  ::= "\("
-escaped-rparen  ::= "\)"
+raw-char        ::= escaped-lparen
+                  | escaped-rparen
+                  | any character except unescaped ")"
 ```
 
 List meaning depends on its first item:
 
 - `(% ...)` → comment
-- `(# ...)` → explicit raw text node
+- `(# ...)` → verbatim raw text node
 - `(~)` → one literal space
 - `(~tag ...)` → element with one literal space on both sides
+- `(:name ...)` → attribute
 - `(tag ...)` → element, where `tag` is a non-empty text term
 - anything else → invalid
 
-Because text is delimited by parentheses rather than whitespace, this is one text term:
+The heads `#` and `%` are single characters: their payload follows immediately
+and is not token-delimited, so `(#hello)` and `(%hello)` are valid. All other
+heads are tokens read up to whitespace or a parenthesis.
+
+### 2.1 Whitespace model
+
+Whitespace is a space, tab, or newline. There are two kinds:
+
+- **Structural whitespace** is dropped and never appears in the output. It is:
+  - whitespace immediately after a list head token (it only separates the head
+    from the first item);
+  - whitespace immediately around an attribute form (attributes are hoisted out
+    of the content flow, so this whitespace is layout, not content);
+  - whitespace at the very start and end of the document.
+- **Content whitespace** is preserved:
+  - inside a bare text term, every run of whitespace collapses to a single space;
+  - inside `(# ...)`, whitespace is preserved character-for-character;
+  - inside an attribute value, whitespace is preserved as written.
+
+Because text is delimited by parentheses rather than whitespace, this is one text
+term:
 
 ```sexp
 One hundred million and two thousand years from now
@@ -109,23 +143,24 @@ Example:
 
 - `(# ...)` serializes to a text node
 - the exact form `(#)` is valid and denotes an empty text node
-- the first whitespace character after `#`, if present, is only a separator and is not part of the text payload
-- that separator may be a space, tab, newline, or any other whitespace character
-- if multiple whitespace characters appear after `#`, only the first one is treated as the separator; the rest belong to the text payload
-- its content starts after that separator and continues until the matching unescaped `)`
-- unlike ordinary text terms, this form preserves leading spaces, newlines, and other syntactic whitespace
+- its content is everything after `#` up to the first unescaped `)`, taken
+  **verbatim**: no whitespace is consumed as a separator, and leading spaces and
+  newlines are preserved exactly
 - inside this form, `\(` becomes `(` and `\)` becomes `)`
 
 Examples:
 
 ```sexp
 (#)
-(# )
+(#hello)
+(# hello)
 (#  world)
-(# 
-world)
+(#\nworld)
 (# \(hello\))
 ```
+
+serialize to the text `""`, `"hello"`, `" hello"`, `"  world"`, `"\nworld"`, and
+`"(hello)"` respectively.
 
 ### 3.4 Space Forms
 
@@ -148,9 +183,8 @@ Example:
 <p> <span>hello</span> world</p>
 ```
 
-This form exists because ordinary syntactic whitespace is ignored as a separator and therefore cannot represent all meaningful text-space positions by itself.
-
-`(~)` can be understood as a convenient shorthand for a one-space raw text node.
+These forms are convenience shorthands for one-space raw text nodes, so the most
+common spacing cases do not require writing `(# )`.
 
 ### 3.5 Attribute
 
@@ -178,28 +212,24 @@ id="main"
 open
 ```
 
-
 ## 4. Semantics
 
 ### 4.1 Text terms
 
-A text term is any continuous span of text up to the next unescaped `(` or `)`.
+A bare text term is any continuous span of text up to the next unescaped `(` or
+`)`. Inside it, **every run of whitespace collapses to a single space**.
 
 Consequences:
 
-- spaces are preserved inside text
-- newlines are preserved inside text
-- spaces between terms are only separators and do not create nodes
-- when syntactic whitespace itself must become text, use `(# ...)`
+- `(p one   two)` renders `<p>one two</p>`
+- `(p line1\nline2)` renders `<p>line1 line2</p>` (a newline is a space)
+- `(p   hello)` renders `<p>hello</p>` (whitespace after the head is structural)
+- `(p a (b c))` renders `<p>a <b>c</b></p>` and `(p a(b c))` renders
+  `<p>a<b>c</b></p>`: the whitespace you type between a text term and an element
+  is content (one space), and typing nothing gives adjacency
+- when text must preserve exact spacing (multiple spaces, tabs, newlines, leading
+  or trailing whitespace), use `(# ...)`
 - `(~)` and `(~tag ...)` are convenience forms for common spacing cases
-
-So in:
-
-```sexp
-(p One hundred million and two thousand years from now)
-```
-
-the entire phrase is a single child text node.
 
 ### 4.2 Escaping
 
@@ -222,9 +252,15 @@ becomes:
 
 Inside `(# ...)`, the same parenthesis escaping rules apply.
 
+A literal backslash is ordinary text except directly before the closing `)`
+of a term, where `\)` is always an escape. A text value ending in a backslash
+is therefore not representable, and `html_to_sexp` rejects it.
+
 ### 4.3 Attributes
 
-Attributes may appear anywhere inside an element.
+Attributes may appear anywhere inside an element. Because they are hoisted onto
+the opening tag, the whitespace immediately around an attribute form is
+structural and does not appear in the output.
 
 Example:
 
@@ -267,19 +303,8 @@ Example:
 <div class="b">hello</div>
 ```
 
-Whitespace immediately before a later attribute is only syntactic separator whitespace and does not create a text node.
-
-Example:
-
-```sexp
-(div hello   (:class x))
-```
-
-```html
-<div class="x">hello</div>
-```
-
-Explicit raw text nodes are different: their payload remains literal even if a later attribute appears.
+Explicit raw text nodes are different: their payload remains literal even if a
+later attribute appears.
 
 Example:
 
@@ -288,7 +313,7 @@ Example:
 ```
 
 ```html
-<div class="x"> </div>
+<div class="x">  </div>
 ```
 
 ### 4.4 Comments
@@ -339,7 +364,6 @@ Valid:
 (~br)
 ```
 
-
 ## 5. Serialization rules
 
 ### 5.1 Text
@@ -388,24 +412,34 @@ For `(~)`:
 
 For `(# ...)`:
 
-1. take every character after `#` up to the matching unescaped `)`
-2. if the first character after `#` is whitespace, treat that one character as a separator and do not emit it
-3. resolve `\(` to `(` and `\)` to `)`
-4. emit the resulting text literally
+1. take every character after `#` up to the first unescaped `)`
+2. resolve `\(` to `(` and `\)` to `)`
+3. emit the resulting text verbatim
 
 Consequences:
 
-- `(#)` and `(# )` both serialize to the empty string
-- `(#  )` serializes to one literal space
-- `(#\nhello)` serializes to `hello`
-- `(# \nhello)` serializes to `\nhello`
+- `(#)` and `(# )` serialize to `""` and `" "` respectively
+- `(#  )` serializes to two literal spaces
+- `(#\nhello)` serializes to `\nhello`
 
 ### 5.4 Fragment model
 
-A document is an HTML fragment, not necessarily a single rooted tree. Multiple top-level nodes are allowed.
+A document is an HTML fragment, not necessarily a single rooted tree. Multiple
+top-level nodes are allowed.
 
 Lists whose first item is missing or is itself another list are invalid.
 
+### 5.5 Converting HTML back (`html_to_sexp`)
+
+`html_to_sexp` emits S-expressions that round-trip to the same HTML:
+
+- a text node with no leading whitespace and only single internal space
+  characters is emitted as a bare term; any other text is emitted as `(# ...)`
+- a text, attribute-value, or comment value ending in a backslash is rejected as
+  unrepresentable
+- attribute values beginning with whitespace are rejected as unrepresentable
+- child terms are concatenated directly (a bare text term is only emitted when it
+  is safe next to its neighbors)
 
 ## 6. Examples
 
@@ -419,17 +453,17 @@ Lists whose first item is missing or is itself another list are invalid.
 <!-- I want you to know since you came in my life -->
 ```
 
-### Text with spaces
+### Whitespace collapses to one space
 
 ```sexp
-(p One hundred million and two thousand years from now)
+(p One hundred million and two thousand years from now   end)
 ```
 
 ```html
-<p>One hundred million and two thousand years from now</p>
+<p>One hundred million and two thousand years from now end</p>
 ```
 
-### Nested structure
+### Spaces around elements are content
 
 ```sexp
 (p One hundred million and two thousand years from now
@@ -438,9 +472,27 @@ Lists whose first item is missing or is itself another list are invalid.
 ```
 
 ```html
-<p>One hundred million and two thousand years from now
-  <span style="font-family: &quot;Alegreya Sans SC&quot;, sans-serif">爱してる</span>
-</p>
+<p>One hundred million and two thousand years from now <span style="font-family: &quot;Alegreya Sans SC&quot;, sans-serif">爱してる</span></p>
+```
+
+### Exact spacing uses raw text
+
+```sexp
+(p hello (#  ) world)
+```
+
+```html
+<p>hello   world</p>
+```
+
+### Adjacency
+
+```sexp
+(p a(b c)d)
+```
+
+```html
+<p>a<b>c</b>d</p>
 ```
 
 ### Escaped parentheses
@@ -453,11 +505,7 @@ Lists whose first item is missing or is itself another list are invalid.
 ```
 
 ```html
-<details open>
-  <summary>every day every night</summary>
-  (I've been waiting to share my love with you)
-  you give light into the darkness skies
-</details>
+<details open><summary>every day every night</summary> (I've been waiting to share my love with you) you give light into the darkness skies</details>
 ```
 
 ### Attribute after children
