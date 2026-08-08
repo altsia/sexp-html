@@ -484,6 +484,29 @@ fn check_roundtrip(input : String) -> Result[Unit, String] {
 }
 
 ///|
+fn nested_element_source(depth : Int) -> String {
+  let builder = StringBuilder::new()
+  for _ in 0..<depth {
+    builder.write_string("(div ")
+  }
+  builder.write_string("x")
+  for _ in 0..<depth {
+    builder.write_string(")")
+  }
+  builder.to_string()
+}
+
+///|
+test "nesting depth is capped at 128" {
+  @test.assert_eq(sexp_to_html(nested_element_source(128)) is Ok(_), true)
+  match sexp_to_html(nested_element_source(129)) {
+    Ok(_) => fail("expected an error")
+    Err(e) =>
+      @test.assert_eq(e.contains("nesting depth exceeds 128"), true)
+  }
+}
+
+///|
 fn transform_icon_test_node(node : SexpNode) -> SexpNode {
   match node {
     Element("icon", _, children) =>
