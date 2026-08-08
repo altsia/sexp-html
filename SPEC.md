@@ -27,7 +27,7 @@ Whitespace is never ambiguous because it follows one uniform rule, described in
 [§ 2.1](#21-whitespace-model): runs of whitespace inside a text term become a
 single space, and structural whitespace (around list heads and attribute forms,
 and at the document edges) is dropped. When exact whitespace must be produced,
-use the verbatim raw text form `(# ...)` or the space forms `(~)` / `(~tag ...)`.
+use the verbatim raw text form `(# ...)`.
 
 ## 2. Minimal grammar
 
@@ -62,8 +62,6 @@ List meaning depends on its first item:
 
 - `(% ...)` → comment
 - `(# ...)` → verbatim raw text node
-- `(~)` → one literal space
-- `(~tag ...)` → element with one literal space on both sides
 - `(:name ...)` → attribute
 - `(tag ...)` → element, where `tag` is a non-empty text term
 - anything else → invalid
@@ -162,31 +160,7 @@ Examples:
 serialize to the text `""`, `"hello"`, `" hello"`, `"  world"`, `"\nworld"`, and
 `"(hello)"` respectively.
 
-### 3.4 Space Forms
-
-```sexp
-(~)
-(~tag item1 item2 ...)
-```
-
-- `(~)` serializes to exactly one space character
-- `(~tag ...)` serializes like `(tag ...)`, but with one literal space added before and after the element
-- `(~ ...)` with an empty tag name is only valid in the exact form `(~)`
-
-Example:
-
-```sexp
-(p (~span hello)world)
-```
-
-```html
-<p> <span>hello</span> world</p>
-```
-
-These forms are convenience shorthands for one-space raw text nodes, so the most
-common spacing cases do not require writing `(# )`.
-
-### 3.5 Attribute
+### 3.4 Attribute
 
 ```sexp
 (:name value)
@@ -229,7 +203,6 @@ Consequences:
   is content (one space), and typing nothing gives adjacency
 - when text must preserve exact spacing (multiple spaces, tabs, newlines, leading
   or trailing whitespace), use `(# ...)`
-- `(~)` and `(~tag ...)` are convenience forms for common spacing cases
 
 ### 4.2 Escaping
 
@@ -356,14 +329,6 @@ Invalid:
 (br hello)
 ```
 
-The spaced form still follows the same void-element rule.
-
-Valid:
-
-```sexp
-(~br)
-```
-
 ## 5. Serialization rules
 
 ### 5.1 Text
@@ -399,16 +364,6 @@ For an element:
 3. resolve duplicate attributes by keeping the last one
 4. serialize all non-attribute items in order as children
 5. emit normal HTML, except for void elements
-
-For a spaced element `(~tag ...)`:
-
-1. serialize it exactly as `(tag ...)`
-2. prepend one literal space
-3. append one literal space
-
-For `(~)`:
-
-1. emit exactly one literal space character
 
 For `(# ...)`:
 

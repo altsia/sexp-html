@@ -26,8 +26,6 @@ priv enum ParsedListForm {
 priv enum ParsedHead {
   CommentHead
   RawTextHead
-  SpaceHead
-  SpacedElementHead(String)
   AttributeHead(String)
   ElementHead(String)
 }
@@ -115,7 +113,7 @@ fn parse_list_form_head(open : Cursor) -> Result[(ParsedHead, Cursor), String] {
 }
 
 ///|
-/// Classifies a head token into syntax forms: `%`, `#`, `~`, `~tag`, `:attr`, or element.
+/// Classifies a head token into syntax forms: `%`, `#`, `:attr`, or element.
 fn ParsedHead::parse(
   head : String,
   after_head : Cursor,
@@ -123,24 +121,9 @@ fn ParsedHead::parse(
   match head {
     "%" => Ok(CommentHead)
     "#" => Ok(RawTextHead)
-    "~" => Ok(SpaceHead)
-    _ if head.has_prefix("~") =>
-      ParsedHead::parse_spaced_element(head, after_head)
     _ if head.has_prefix(":") => ParsedHead::parse_attribute(head, after_head)
     _ => Ok(ElementHead(head))
   }
-}
-
-///|
-fn ParsedHead::parse_spaced_element(
-  head : String,
-  after_head : Cursor,
-) -> Result[ParsedHead, String] {
-  let tag = head.sub(start=1).to_owned()
-  if tag.is_empty() {
-    return Err(after_head.error("empty ~ tag must use the exact form (~)"))
-  }
-  Ok(SpacedElementHead(tag))
 }
 
 ///|
@@ -170,8 +153,6 @@ fn ParsedHead::parse_payload(
   match head {
     CommentHead => parse_comment(after_head)
     RawTextHead => parse_raw_text(after_head)
-    SpaceHead => parse_space(after_head)
-    SpacedElementHead(tag) => parse_element_with_spacing(after_head, tag, true)
     AttributeHead(name) => parse_attribute(after_head, name)
     ElementHead(tag) => parse_element(after_head, tag)
   }
@@ -203,20 +184,6 @@ fn parse_raw_text(
 }
 
 ///|
-/// Parses `(~)`, the explicit single-space node. Other payload is rejected so
-/// `~tag` remains the only spaced element form.
-fn parse_space(after_head : Cursor) -> Result[(ParsedListForm, Cursor), String] {
-  let cursor = after_head.skip_whitespace()
-  guard cursor.peek() is Some(ch) else {
-    return Err(cursor.error("unterminated (~) form"))
-  }
-  guard is_sexp_close_paren(ch) else {
-    return Err(cursor.error("(~) cannot contain attributes or children"))
-  }
-  Ok((Nodes([Explicit(Text(" "))]), cursor.advance_code_units(1)))
-}
-
-///|
 /// Parses `(:name)` and `(:name value)`. Attribute values are plain text only;
 /// nested list structure is intentionally rejected by the payload scanner.
 fn parse_attribute(
@@ -237,21 +204,12 @@ fn parse_attribute(
 }
 
 ///|
-fn parse_element(
-  after_head : Cursor,
-  tag : String,
-) -> Result[(ParsedListForm, Cursor), String] {
-  parse_element_with_spacing(after_head, tag, false)
-}
-
-///|
 /// Parses an element body, collecting attributes and children in source order.
 /// Attribute forms may appear anywhere; they are hoisted onto the element and
 /// the whitespace immediately around them is structural (dropped).
-fn parse_element_with_spacing(
+fn parse_element(
   after_head : Cursor,
   tag : String,
-  spaced : Bool,
 ) -> Result[(ParsedListForm, Cursor), String] {
   let attrs : Attrs = Attrs({})
   let children : Array[ParseContent] = []
@@ -259,7 +217,7 @@ fn parse_element_with_spacing(
   while !cursor.is_end() {
     match cursor.peek() {
       Some(ch) if is_sexp_close_paren(ch) =>
-        return build_element_result(tag, attrs, children, spaced, cursor)
+        return build_element_result(tag, attrs, children, cursor)
       Some(ch) if is_sexp_open_paren(ch) =>
         match parse_element_list_item(cursor, attrs, children) {
           Ok(next) => cursor = next
@@ -272,13 +230,12 @@ fn parse_element_with_spacing(
 }
 
 ///|
-/// Builds the element result after the closing paren, applying void-element and
-/// `~tag` spacing rules at the boundary where all children are known.
+/// Builds the element result after the closing paren, applying void-element
+/// rules at the boundary where all children are known.
 fn build_element_result(
   tag : String,
   attrs : Attrs,
   children : Array[ParseContent],
-  spaced : Bool,
   close : Cursor,
 ) -> Result[(ParsedListForm, Cursor), String] {
   if is_void_element_name(tag) && !children.is_empty() {
@@ -287,15 +244,7 @@ fn build_element_result(
     )
   }
   let element = Element(tag, attrs, children.map(ParseContent::to_node))
-  guard spaced else {
-    Ok((Nodes([Explicit(element)]), close.advance_code_units(1)))
-  }
-  Ok(
-    (
-      Nodes([Explicit(Text(" ")), Explicit(element), Explicit(Text(" "))]),
-      close.advance_code_units(1),
-    ),
-  )
+  Ok((Nodes([Explicit(element)]), close.advance_code_units(1)))
 }
 
 ///|

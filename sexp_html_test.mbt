@@ -100,18 +100,6 @@ test "attribute values cannot contain nested structure" {
 }
 
 ///|
-test "standalone space form serializes to one space" {
-  @test.assert_eq(sexp_to_html("(~)"), Ok(" "))
-}
-
-///|
-test "spaced element form adds spaces on both sides" {
-  let input = "(p (~span Hello)world)"
-  let expected = "<p> <span>Hello</span> world</p>"
-  @test.assert_eq(sexp_to_html(input), Ok(expected))
-}
-
-///|
 test "whitespace runs collapse to a single space" {
   @test.assert_eq(sexp_to_html("(p one   two)"), Ok("<p>one two</p>"))
   let line_input =
@@ -383,12 +371,6 @@ test "attribute values keep internal whitespace" {
     Ok("<div title=\"a  b\"></div>"),
   )
   @test.assert_eq(check_roundtrip("<div title=\"a  b\"></div>"), Ok(()))
-}
-
-///|
-test "space forms inside elements" {
-  @test.assert_eq(sexp_to_html("(p a(~)b)"), Ok("<p>a b</p>"))
-  @test.assert_eq(sexp_to_html("(p (~)x)"), Ok("<p> x</p>"))
 }
 
 ///|

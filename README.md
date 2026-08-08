@@ -37,16 +37,6 @@
   <details open><summary>every day every night</summary> (I've been waiting to share my love with you) you give light into the darkness skies</details>
   ```
 
-- `(~)` emits a literal space, and `(~tag ...)` emits the normal element with one space on each side
-
-  ```sexp
-  (p (~span hello)world)
-  ```
-
-  ```html
-  <p> <span>hello</span> world</p>
-  ```
-
 - `(# ...)` emits a verbatim text node: everything after `#` is literal, including leading spaces and newlines. No whitespace is consumed as a separator.
 
   ```sexp
@@ -92,7 +82,7 @@ pub(all) enum SexpNode {
 }
 ```
 
-Syntax forms such as `(# ...)`, `(~)`, and `(~tag ...)` are expanded during parsing into ordinary `Text` and `Element` nodes.
+Syntax forms such as `(# ...)` are expanded during parsing into ordinary `Text` and `Element` nodes.
 
 Use `Raw` for trusted content that should be inserted directly without escaping:
 
