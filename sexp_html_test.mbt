@@ -184,6 +184,27 @@ test "document whitespace between terms is content but edges are structural" {
 }
 
 ///|
+test "whitespace before a nested list is part of the preceding text" {
+  @test.assert_eq(
+    sexp_to_html("(p a  (span x))"),
+    Ok("<p>a <span>x</span></p>"),
+  )
+}
+
+///|
+test "whitespace after a list is a separator and collapses to one space" {
+  @test.assert_eq(
+    sexp_to_html("(p (span x)   world)"),
+    Ok("<p><span>x</span> world</p>"),
+  )
+}
+
+///|
+test "trailing whitespace after a list before close is one space" {
+  @test.assert_eq(sexp_to_html("(p (span x) )"), Ok("<p><span>x</span> </p>"))
+}
+
+///|
 test "lists must have a non-empty head term" {
   match sexp_to_html("(())") {
     Ok(_) => fail("expected an error")
