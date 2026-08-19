@@ -437,8 +437,10 @@ Lists whose first item is missing or is itself another list are invalid.
 ```
 
 ```html
-<p>hello   world</p>
+<p>hello    world</p>
 ```
+
+Four spaces between `hello` and `world`: the raw payload `"  "` plus one content space on each side (§ 4.1).
 
 ### Adjacency
 
