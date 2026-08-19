@@ -1,10 +1,16 @@
 ///|
+/// A map of HTML attribute names to optional values. `None` renders as a
+/// minimized (valueless) attribute.
 pub(all) struct Attrs(Map[String, String?])
 
 ///|
 const NODE_RENDER_SEPARATOR = ""
 
 ///|
+/// Parses an S-expression HTML fragment and renders it to an HTML string.
+///
+/// Returns `Err` with a `parse error at line L, column C: ...` message when the
+/// source is not a valid fragment.
 pub fn sexp_to_html(
   source : String,
   separator? : String = NODE_RENDER_SEPARATOR,
@@ -13,6 +19,7 @@ pub fn sexp_to_html(
 }
 
 ///|
+/// Renders AST nodes to an HTML fragment, joined by `separator`.
 pub fn render_html_fragment(
   nodes : Array[SexpNode],
   separator? : String = NODE_RENDER_SEPARATOR,
@@ -21,6 +28,7 @@ pub fn render_html_fragment(
 }
 
 ///|
+/// Renders a full HTML document shell with doctype, `<head>` and `<body>`.
 pub fn render_html_document(
   attrs : Attrs,
   head : Array[SexpNode],
@@ -41,6 +49,7 @@ pub fn render_html_document(
 }
 
 ///|
+/// Renders `<tag ...>` with the given attributes.
 pub fn render_open_tag(tag : String, attrs : Attrs) -> String {
   let builder = StringBuilder()
   builder <+ "<\{tag}"
@@ -50,11 +59,13 @@ pub fn render_open_tag(tag : String, attrs : Attrs) -> String {
 }
 
 ///|
-pub fn Attrs::upsert(attrs : Attrs, name : String, value : String?) -> Unit {
-  attrs.0[name] = value
+/// Sets an attribute, overwriting any previous value. `None` renders minimized.
+pub fn Attrs::upsert(self : Attrs, name : String, value : String?) -> Unit {
+  self.0[name] = value
 }
 
 ///|
+/// Appends a class to the `class` attribute.
 pub fn Attrs::append_class(self : Attrs, class_name : String) -> Unit {
   let attrs = self.0
   match attrs.get("class") {
@@ -117,6 +128,8 @@ fn append_serialized_attrs(builder : StringBuilder, attrs : Attrs) -> Unit {
 }
 
 ///|
+/// Returns whether `tag` is an HTML void element (rendered without a closing
+/// tag and invalid with child nodes).
 pub fn is_void_element_name(tag : String) -> Bool {
   html_void_element_names.contains(tag.to_lower())
 }

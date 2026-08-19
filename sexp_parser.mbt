@@ -1,4 +1,6 @@
 ///|
+/// A normalized AST node. `Text` nodes are HTML-escaped when rendered; `Raw`
+/// holds trusted HTML emitted verbatim.
 pub(all) enum SexpNode {
   Text(String)
   Comment(String)
@@ -38,36 +40,37 @@ const MAX_NESTING_DEPTH = 128
 
 ///|
 /// Parses a full S-expression HTML fragment into normalized AST nodes.
+///
+/// Returns `Err` with a `parse error at line L, column C: ...` message when the
+/// source is not a valid fragment.
 pub fn parse_sexp(source : String) -> Result[Array[SexpNode], String] {
-  parse_document(Cursor::new(source))
+  Ok(parse_document(Cursor::new(source))) catch {
+    error => Err(Show::to_string(error))
+  }
 }
 
 ///|
 /// Parses top-level nodes. Leading and trailing document whitespace is
 /// structural and dropped; whitespace between top-level nodes is content.
-fn parse_document(start : Cursor) -> Result[Array[SexpNode], String] {
+fn parse_document(start : Cursor) -> Array[SexpNode] raise ParseError {
   let nodes : Array[SexpNode] = []
   let mut cursor = start.skip_whitespace()
   let mut last_bare = false
   while !cursor.is_end() {
-    if cursor.peek().map_or(false, is_sexp_close_paren) {
-      return Err(cursor.error("unexpected ')'"))
+    if cursor.peek() is Some(ch) && is_sexp_close_paren(ch) {
+      raise cursor.error("unmatched ')' at the top level")
     }
-    match parse_node(cursor, nodes, 0) {
-      Ok((next, bare)) => {
-        cursor = next
-        last_bare = bare
-      }
-      Err(error) => return Err(error)
-    }
+    let (next, bare) = parse_node(cursor, nodes, 0)
+    cursor = next
+    last_bare = bare
   }
-  if last_bare && !nodes.is_empty() {
-    match nodes[nodes.length() - 1] {
-      Text(text) if text.trim().is_empty() => ignore(nodes.pop())
+  if last_bare {
+    match nodes.last() {
+      Some(Text(text)) if text.is_blank() => ignore(nodes.pop())
       _ => ()
     }
   }
-  Ok(nodes)
+  nodes
 }
 
 ///|
@@ -78,23 +81,21 @@ fn parse_node(
   cursor : Cursor,
   nodes : Array[SexpNode],
   depth : Int,
-) -> Result[(Cursor, Bool), String] {
+) -> (Cursor, Bool) raise ParseError {
   if is_sexp_open_paren(cursor.unsafe_char_at(cursor.index)) {
-    parse_list_form(cursor, depth).bind(pair => {
-      let (item, next) = pair
-      match item {
-        Nodes(node) => {
-          nodes.push(node)
-          Ok((next, false))
-        }
-        Attr(_, _) =>
-          Err(cursor.error("attribute cannot appear at the document root"))
+    let (item, next) = parse_list_form(cursor, depth)
+    match item {
+      Nodes(node) => {
+        nodes.push(node)
+        (next, false)
       }
-    })
+      Attr(_, _) =>
+        raise cursor.error("attribute cannot appear at the document root")
+    }
   } else {
     let (text, next) = parse_text(cursor)
     nodes.push(Text(text))
-    Ok((next, true))
+    (next, true)
   }
 }
 
@@ -104,18 +105,19 @@ fn parse_node(
 fn parse_list_form(
   open : Cursor,
   depth : Int,
-) -> Result[(ParsedListForm, Cursor), String] {
-  parse_list_form_head(open).bind(data => data.0.parse_payload(data.1, depth))
+) -> (ParsedListForm, Cursor) raise ParseError {
+  let (head, after_head) = parse_list_form_head(open)
+  head.parse_payload(after_head, depth)
 }
 
 ///|
-fn parse_list_form_head(open : Cursor) -> Result[(ParsedHead, Cursor), String] {
+fn parse_list_form_head(open : Cursor) -> (ParsedHead, Cursor) raise ParseError {
   let head_start = open.advance_code_units(1).skip_whitespace()
   guard head_start.peek() is Some(ch) else {
-    return Err(open.error("unterminated list"))
+    raise open.error("unterminated list")
   }
   guard !is_sexp_close_paren(ch) else {
-    return Err(open.error("empty list is invalid"))
+    raise open.error("empty list is invalid")
   }
   parse_head(head_start)
 }
@@ -124,26 +126,26 @@ fn parse_list_form_head(open : Cursor) -> Result[(ParsedHead, Cursor), String] {
 /// Reads and classifies a list head. `#` and `%` are single-character markers
 /// whose payload follows immediately and is not token-delimited; `:name` is an
 /// attribute; any other token up to whitespace or a list boundary is a tag.
-fn parse_head(start : Cursor) -> Result[(ParsedHead, Cursor), String] {
+fn parse_head(start : Cursor) -> (ParsedHead, Cursor) raise ParseError {
   let ch = start.unsafe_char_at(start.index)
-  if ch == '#' {
-    return Ok((RawTextHead, start.advance_code_units(1)))
-  }
-  if ch == '%' {
-    return Ok((CommentHead, start.advance_code_units(1)))
-  }
-  if ch == ':' {
-    let (name, after_head) = parse_head_token(start, 1)
-    if name.is_empty() {
-      return Err(after_head.error("attribute name cannot be empty"))
+  match ch {
+    '#' => (RawTextHead, start.advance_code_units(1))
+    '%' => (CommentHead, start.advance_code_units(1))
+    ':' => {
+      let (name, after_head) = parse_head_token(start, 1)
+      guard !name.is_empty() else {
+        raise after_head.error("attribute name cannot be empty")
+      }
+      (AttributeHead(name), after_head)
     }
-    return Ok((AttributeHead(name), after_head))
+    _ => {
+      let (tag, after_head) = parse_head_token(start, 0)
+      guard !tag.is_empty() else {
+        raise start.error("list head cannot be empty")
+      }
+      (ElementHead(tag), after_head)
+    }
   }
-  let (tag, after_head) = parse_head_token(start, 0)
-  if tag.is_empty() {
-    return Err(start.error("list head cannot be empty"))
-  }
-  Ok((ElementHead(tag), after_head))
 }
 
 ///|
@@ -166,11 +168,11 @@ fn parse_head_token(start : Cursor, skip : Int) -> (String, Cursor) {
 
 ///|
 fn ParsedHead::parse_payload(
-  head : ParsedHead,
+  self : ParsedHead,
   after_head : Cursor,
   depth : Int,
-) -> Result[(ParsedListForm, Cursor), String] {
-  match head {
+) -> (ParsedListForm, Cursor) raise ParseError {
+  match self {
     CommentHead => parse_comment(after_head)
     RawTextHead => parse_raw_text(after_head)
     AttributeHead(name) => parse_attribute(after_head, name)
@@ -183,12 +185,10 @@ fn ParsedHead::parse_payload(
 /// the payload parser then keeps balanced parentheses until the closing list paren.
 fn parse_comment(
   after_head : Cursor,
-) -> Result[(ParsedListForm, Cursor), String] {
+) -> (ParsedListForm, Cursor) raise ParseError {
   let start = after_head.skip_whitespace()
-  scan_delimited(start, Comment).map(result => {
-    let (content, next) = result
-    (Nodes(Comment(content)), next)
-  })
+  let (content, next) = scan_delimited(start, Comment)
+  (Nodes(Comment(content)), next)
 }
 
 ///|
@@ -196,11 +196,9 @@ fn parse_comment(
 /// whitespace is consumed as a separator, only `\(` and `\)` are unescaped.
 fn parse_raw_text(
   after_head : Cursor,
-) -> Result[(ParsedListForm, Cursor), String] {
-  scan_delimited(after_head, RawText).map(result => {
-    let (content, next) = result
-    (Nodes(Text(content)), next)
-  })
+) -> (ParsedListForm, Cursor) raise ParseError {
+  let (content, next) = scan_delimited(after_head, RawText)
+  (Nodes(Text(content)), next)
 }
 
 ///|
@@ -209,18 +207,16 @@ fn parse_raw_text(
 fn parse_attribute(
   after_head : Cursor,
   name : String,
-) -> Result[(ParsedListForm, Cursor), String] {
+) -> (ParsedListForm, Cursor) raise ParseError {
   let cursor = after_head.skip_whitespace()
   guard cursor.peek() is Some(ch) else {
-    return Err(cursor.error("unterminated attribute"))
+    raise cursor.error("unterminated attribute")
   }
   guard !is_sexp_close_paren(ch) else {
-    return Ok((Attr(name, None), cursor.advance_code_units(1)))
+    return (Attr(name, None), cursor.advance_code_units(1))
   }
-  scan_delimited(cursor, Attribute).map(result => {
-    let (value, next) = result
-    (Attr(name, Some(value)), next)
-  })
+  let (value, next) = scan_delimited(cursor, Attribute)
+  (Attr(name, Some(value)), next)
 }
 
 ///|
@@ -233,9 +229,9 @@ fn parse_element(
   after_head : Cursor,
   tag : String,
   depth : Int,
-) -> Result[(ParsedListForm, Cursor), String] {
+) -> (ParsedListForm, Cursor) raise ParseError {
   guard depth < MAX_NESTING_DEPTH else {
-    return Err(after_head.error("nesting depth exceeds 128"))
+    raise after_head.error("nesting depth exceeds 128")
   }
   let attrs : Attrs = Attrs({})
   let children : Array[SexpNode] = []
@@ -245,14 +241,17 @@ fn parse_element(
     match cursor.peek() {
       Some(ch) if is_sexp_close_paren(ch) =>
         return build_element_result(tag, attrs, children, cursor)
-      Some(ch) if is_sexp_open_paren(ch) =>
-        match parse_element_list_item(cursor, attrs, children, last_bare, depth + 1) {
-          Ok((next, bare)) => {
-            cursor = next
-            last_bare = bare
-          }
-          Err(error) => return Err(error)
-        }
+      Some(ch) if is_sexp_open_paren(ch) => {
+        let (next, bare) = parse_element_list_item(
+          cursor,
+          attrs,
+          children,
+          last_bare,
+          depth + 1,
+        )
+        cursor = next
+        last_bare = bare
+      }
       _ => {
         let (next, bare) = parse_element_text(cursor, children)
         cursor = next
@@ -260,7 +259,7 @@ fn parse_element(
       }
     }
   }
-  Err(cursor.error("unterminated element <" + tag + ">"))
+  raise cursor.error("unterminated element <" + tag + ">")
 }
 
 ///|
@@ -271,13 +270,11 @@ fn build_element_result(
   attrs : Attrs,
   children : Array[SexpNode],
   close : Cursor,
-) -> Result[(ParsedListForm, Cursor), String] {
+) -> (ParsedListForm, Cursor) raise ParseError {
   if is_void_element_name(tag) && !children.is_empty() {
-    return Err(
-      close.error("void element <" + tag + "> cannot have child nodes"),
-    )
+    raise close.error("void element <" + tag + "> cannot have child nodes")
   }
-  Ok((Nodes(Element(tag, attrs, children)), close.advance_code_units(1)))
+  (Nodes(Element(tag, attrs, children)), close.advance_code_units(1))
 }
 
 ///|
@@ -290,21 +287,19 @@ fn parse_element_list_item(
   children : Array[SexpNode],
   last_bare : Bool,
   depth : Int,
-) -> Result[(Cursor, Bool), String] {
-  parse_list_form(cursor, depth).bind(pair => {
-    let (item, next) = pair
-    match item {
-      Attr(name, value) => {
-        trim_trailing_text_before_attribute(children, last_bare)
-        Attrs::upsert(attrs, name, value)
-        Ok((next.skip_whitespace(), false))
-      }
-      Nodes(node) => {
-        children.push(node)
-        Ok((next, false))
-      }
+) -> (Cursor, Bool) raise ParseError {
+  let (item, next) = parse_list_form(cursor, depth)
+  match item {
+    Attr(name, value) => {
+      trim_trailing_text_before_attribute(children, last_bare)
+      Attrs::upsert(attrs, name, value)
+      (next.skip_whitespace(), false)
     }
-  })
+    Nodes(node) => {
+      children.push(node)
+      (next, false)
+    }
+  }
 }
 
 ///|
@@ -313,7 +308,7 @@ fn parse_element_list_item(
 fn parse_element_text(
   cursor : Cursor,
   children : Array[SexpNode],
-) -> (Cursor, Bool) {
+) -> (Cursor, Bool) raise ParseError {
   let (text, next) = parse_text(cursor)
   if !text.is_empty() {
     children.push(Text(text))
@@ -325,8 +320,8 @@ fn parse_element_text(
 /// Reads ordinary text until an unescaped list boundary. Only `\(` and `\)`
 /// are unescaped; other backslashes remain literal text. Within a text term,
 /// every run of whitespace collapses to a single space.
-fn parse_text(start : Cursor) -> (String, Cursor) {
-  scan_delimited(start, BareText).unwrap()
+fn parse_text(start : Cursor) -> (String, Cursor) raise ParseError {
+  scan_delimited(start, BareText)
 }
 
 ///|
@@ -336,7 +331,7 @@ fn parse_text(start : Cursor) -> (String, Cursor) {
 fn scan_delimited(
   start : Cursor,
   mode : ScanMode,
-) -> Result[(String, Cursor), String] {
+) -> (String, Cursor) raise ParseError {
   let source = start.source
   let length = start.code_unit_length()
   let mut index = start.index
@@ -350,7 +345,7 @@ fn scan_delimited(
       BareText =>
         if code < 0x80 {
           if code == 0x28 || code == 0x29 {
-            return Ok((start.slice_until(index), start.with_index(index)))
+            return (start.slice_until(index), start.with_index(index))
           }
           if code >= 0x09 && code <= 0x0D {
             break
@@ -374,25 +369,21 @@ fn scan_delimited(
             match mode {
               Comment => comment_depth = comment_depth + 1
               Attribute =>
-                return Err(
-                  start
+                raise start
                   .with_index(index)
-                  .error("attribute values must be plain text"),
-                )
+                  .error("attribute values must be plain text")
               _ => ()
             }
           0x29 =>
             match mode {
               Comment => {
                 if comment_depth == 0 {
-                  return Ok(
-                    (start.slice_until(index), start.with_index(index + 1)),
-                  )
+                  return (start.slice_until(index), start.with_index(index + 1))
                 }
                 comment_depth = comment_depth - 1
               }
               _ =>
-                return Ok((start.slice_until(index), start.with_index(index + 1)))
+                return (start.slice_until(index), start.with_index(index + 1))
             }
           _ => ()
         }
@@ -409,7 +400,7 @@ fn scan_delimited(
 fn scan_delimited_with_transform(
   start : Cursor,
   mode : ScanMode,
-) -> Result[(String, Cursor), String] {
+) -> (String, Cursor) raise ParseError {
   let buffer : Array[Char] = []
   let mut index = start.index
   let mut comment_depth = 0
@@ -427,7 +418,7 @@ fn scan_delimited_with_transform(
       match mode {
         BareText =>
           if is_sexp_paren(ch) {
-            return Ok((text_from_buffer(buffer), start.with_index(index)))
+            return (text_from_buffer(buffer), start.with_index(index))
           } else if ch.is_whitespace() {
             buffer.push(' ')
             while index < start.code_unit_length() &&
@@ -441,25 +432,21 @@ fn scan_delimited_with_transform(
             comment_depth = comment_depth + 1
           } else if ch == ')' {
             if comment_depth == 0 {
-              return Ok(
-                (text_from_buffer(buffer), start.with_index(index + 1)),
-              )
+              return (text_from_buffer(buffer), start.with_index(index + 1))
             }
             comment_depth = comment_depth - 1
           }
         RawText =>
           if ch == ')' {
-            return Ok((text_from_buffer(buffer), start.with_index(index + 1)))
+            return (text_from_buffer(buffer), start.with_index(index + 1))
           }
         Attribute =>
           if ch == '(' {
-            return Err(
-              start
+            raise start
               .with_index(index)
-              .error("attribute values must be plain text"),
-            )
+              .error("attribute values must be plain text")
           } else if ch == ')' {
-            return Ok((text_from_buffer(buffer), start.with_index(index + 1)))
+            return (text_from_buffer(buffer), start.with_index(index + 1))
           }
       }
     }
@@ -467,14 +454,11 @@ fn scan_delimited_with_transform(
     index = start.next_char_index(index)
   }
   match mode {
-    BareText => Ok((text_from_buffer(buffer), start.with_index(index)))
-    Comment =>
-      Err(start.with_index(index).error("unterminated comment"))
+    BareText => (text_from_buffer(buffer), start.with_index(index))
+    Comment => raise start.with_index(index).error("unterminated comment")
     RawText =>
-      Err(
-        start.with_index(index).error("unterminated (# ...) text node"),
-      )
-    Attribute => Err(start.with_index(index).error("unterminated attribute"))
+      raise start.with_index(index).error("unterminated (# ...) text node")
+    Attribute => raise start.with_index(index).error("unterminated attribute")
   }
 }
 

@@ -5,6 +5,19 @@ priv struct Cursor {
 }
 
 ///|
+/// A source position paired with a message, formatted by `Show`.
+priv suberror ParseError {
+  ParseError(String)
+}
+
+///|
+impl Show for ParseError with fn to_string(self) {
+  match self {
+    ParseError(message) => message
+  }
+}
+
+///|
 fn Cursor::new(source : String) -> Cursor {
   { source, index: 0 }
 }
@@ -16,7 +29,6 @@ fn Cursor::is_end(self : Cursor) -> Bool {
 
 ///|
 fn Cursor::peek(self : Cursor) -> Char? {
-  guard !self.is_end() else { None }
   self.source.get_char(self.index)
 }
 
@@ -32,36 +44,32 @@ fn Cursor::unsafe_char_at(self : Cursor, index : Int) -> Char {
 
 ///|
 fn Cursor::next_char_index(self : Cursor, index : Int) -> Int {
-  match () {
-    _ if index >= self.code_unit_length() => index
-    _ if self.source.code_unit_at(index).is_leading_surrogate() => index + 2
-    _ => index + 1
+  if index >= self.code_unit_length() {
+    index
+  } else if self.source.code_unit_at(index).is_leading_surrogate() {
+    index + 2
+  } else {
+    index + 1
   }
 }
 
 ///|
 fn Cursor::advance_code_units(self : Cursor, amount : Int) -> Cursor {
-  { source: self.source, index: self.index + amount }
+  { ..self, index: self.index + amount }
 }
 
 ///|
 fn Cursor::with_index(self : Cursor, index : Int) -> Cursor {
-  { source: self.source, index }
+  { ..self, index, }
 }
 
 ///|
 fn Cursor::skip_whitespace(self : Cursor) -> Cursor {
   let mut index = self.index
   while index < self.code_unit_length() {
-    let code = self.source.code_unit_at(index).to_int()
-    if code < 0x80 {
-      guard is_ascii_whitespace_code(code) else { break }
-      index = index + 1
-    } else {
-      let ch = self.source.get_char(index).unwrap()
-      guard ch.is_whitespace() else { break }
-      index = index + ch.utf16_len()
-    }
+    let ch = self.unsafe_char_at(index)
+    guard ch.is_whitespace() else { break }
+    index = index + ch.utf16_len()
   }
   self.with_index(index)
 }
@@ -78,9 +86,11 @@ fn Cursor::slice_until(self : Cursor, end : Int) -> String {
 }
 
 ///|
-fn Cursor::error(self : Cursor, message : String) -> String {
+/// Builds a `ParseError` carrying the message prefixed with the 1-based line
+/// and column of this cursor's position.
+fn Cursor::error(self : Cursor, message : String) -> ParseError {
   let (line, column) = line_column_at(self.source, self.index)
-  "parse error at line \{line}, column \{column}: \{message}"
+  ParseError("parse error at line \{line}, column \{column}: \{message}")
 }
 
 ///|

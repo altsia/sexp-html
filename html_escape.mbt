@@ -1,9 +1,13 @@
 ///|
+/// HTML-escapes `text` for use in element text content: `&`, `<`, and `>`
+/// become their named character references.
 pub fn escape_html_text(text : String) -> String {
   escape_html(text, escape_quote=false)
 }
 
 ///|
+/// HTML-escapes `value` for use inside a double-quoted attribute value: in
+/// addition to `&`, `<`, and `>`, `"` becomes `&quot;`.
 pub fn escape_html_attr_value(value : String) -> String {
   escape_html(value, escape_quote=true)
 }

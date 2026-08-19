@@ -354,7 +354,7 @@ test "parse errors report line and column" {
     Ok(_) => fail("expected an error")
     Err(e) =>
       @test.assert_eq(
-        e, "parse error at line 1, column 19: unexpected ')'",
+        e, "parse error at line 1, column 19: unmatched ')' at the top level",
       )
   }
 }

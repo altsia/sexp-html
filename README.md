@@ -68,7 +68,7 @@ see [SPEC.md](./SPEC.md).
 For custom forms that should become normal HTML-shaped nodes, parse to the public AST, transform it, then render it:
 
 ```moonbit
-parse_sexp("(p (icon search))").map(transform).map(render_html)
+parse_sexp("(p (icon search))").map(transform).map(render_html_fragment)
 ```
 
 The public AST is normalized to HTML-shaped nodes:
@@ -87,7 +87,7 @@ Syntax forms such as `(# ...)` are expanded during parsing into ordinary `Text` 
 Use `Raw` for trusted content that should be inserted directly without escaping:
 
 ```moonbit
-render_html([
+render_html_fragment([
   SexpNode::Element("p", Attrs({}), [
     SexpNode::Text("<escaped> "),
     SexpNode::Raw("<em>trusted</em>"),
