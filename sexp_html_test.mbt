@@ -289,79 +289,6 @@ test "open tag and attr helpers" {
 }
 
 ///|
-test "html fragment to sexp element" {
-  let input = "<p>Hello</p>"
-  @test.assert_eq(html_to_sexp(input), Ok("(p Hello)"))
-}
-
-///|
-test "html fragment with nested content and attrs" {
-  let input = "<details open><summary>every day every night</summary>(I've been waiting)</details>"
-  let expected = "(details (:open) (summary every day every night)\\(I've been waiting\\))"
-  @test.assert_eq(html_to_sexp(input), Ok(expected))
-}
-
-///|
-test "leading spaces become explicit space forms" {
-  let input = "<p><span>Hello</span> world</p>"
-  let expected = "(p (span Hello)(# world))"
-  @test.assert_eq(html_to_sexp(input), Ok(expected))
-}
-
-///|
-test "html full document is flattened back to fragment" {
-  let input = "<!DOCTYPE html><html><head><title>Test</title></head><body><p>World</p></body></html>"
-  let expected = "(title Test)(p World)"
-  @test.assert_eq(html_to_sexp(input), Ok(expected))
-}
-
-///|
-test "leading newline becomes raw text form" {
-  let input =
-    #|<p><span>Hello</span>
-    #|world</p>
-  let expected =
-    #|(p (span Hello)(#
-    #|world))
-  @test.assert_eq(html_to_sexp(input), Ok(expected))
-}
-
-///|
-test "whitespace-only text nodes use canonical raw text forms" {
-  @test.assert_eq(html_to_sexp("<p> </p>"), Ok("(p (# ))"))
-  let input =
-    #|<p>
-    #|</p>
-  let expected =
-    #|(p (#
-    #|))
-  @test.assert_eq(html_to_sexp(input), Ok(expected))
-}
-
-///|
-test "html comments are trimmed when canonicalized" {
-  @test.assert_eq(html_to_sexp("<!--  hello  -->"), Ok("(% hello)"))
-  @test.assert_eq(html_to_sexp("<!--   -->"), Ok("(% )"))
-}
-
-///|
-test "html attrs with leading whitespace values are unsupported" {
-  match html_to_sexp("<div title=\" hello\"></div>") {
-    Ok(_) => fail("expected an error")
-    Err(error) => @test.assert_eq(error.contains("leading whitespace"), true)
-  }
-}
-
-///|
-test "empty html attr values canonicalize to minimized attrs" {
-  @test.assert_eq(
-    html_to_sexp("<details open></details>"),
-    Ok("(details (:open))"),
-  )
-  @test.assert_eq(html_to_sexp("<div class=\"\"></div>"), Ok("(div (:class))"))
-}
-
-///|
 test "parser preserves non-BMP characters" {
   @test.assert_eq(sexp_to_html("(p hi😀there)"), Ok("<p>hi😀there</p>"))
 }
@@ -391,25 +318,6 @@ test "attribute values keep internal whitespace" {
     sexp_to_html("(div (:title a  b))"),
     Ok("<div title=\"a  b\"></div>"),
   )
-  @test.assert_eq(check_roundtrip("<div title=\"a  b\"></div>"), Ok(()))
-}
-
-///|
-test "html_to_sexp emits safe adjacency" {
-  @test.assert_eq(html_to_sexp("<p>a<b>c</b></p>"), Ok("(p a(b c))"))
-  @test.assert_eq(html_to_sexp("<p>a <b>c</b></p>"), Ok("(p a (b c))"))
-  @test.assert_eq(
-    html_to_sexp("<p class=\"x\">Hello</p>"),
-    Ok("(p (:class x) Hello)"),
-  )
-}
-
-///|
-test "comment trailing backslash is rejected" {
-  match html_to_sexp("<!-- a\\ -->") {
-    Ok(_) => fail("expected an error")
-    Err(error) => @test.assert_eq(error.contains("backslash"), true)
-  }
 }
 
 ///|
@@ -445,62 +353,9 @@ test "parse errors report line and column" {
   match sexp_to_html("(p a) unexpected ')'") {
     Ok(_) => fail("expected an error")
     Err(e) =>
-      @test.assert_eq(e, "parse error at line 1, column 19: unexpected ')'")
-  }
-}
-
-///|
-test "html_to_sexp uses bare text only when it round-trips" {
-  @test.assert_eq(html_to_sexp("<p>Hello world</p>"), Ok("(p Hello world)"))
-  @test.assert_eq(html_to_sexp("<p>a  b</p>"), Ok("(p (#a  b))"))
-  @test.assert_eq(html_to_sexp("<p>a\\b</p>"), Ok("(p a\\b)"))
-}
-
-///|
-test "trailing backslash text is rejected as unrepresentable" {
-  match html_to_sexp("<p>a\\</p>") {
-    Ok(_) => fail("expected an error")
-    Err(error) => @test.assert_eq(error.contains("backslash"), true)
-  }
-}
-
-///|
-test "html to sexp to html round-trips losslessly" {
-  @test.assert_eq(check_roundtrip("<p>a<b>c</b>d</p>"), Ok(()))
-  @test.assert_eq(check_roundtrip("<p>a <b>c</b></p>"), Ok(()))
-  @test.assert_eq(check_roundtrip("<p>a<b>c</b> d</p>"), Ok(()))
-  @test.assert_eq(check_roundtrip("<p>a  b</p>"), Ok(()))
-  @test.assert_eq(check_roundtrip("<p> a</p>"), Ok(()))
-  @test.assert_eq(check_roundtrip("<p>a </p>"), Ok(()))
-  @test.assert_eq(check_roundtrip("<p>Hello <em>World</em> again</p>"), Ok(()))
-  @test.assert_eq(check_roundtrip("<p>a\\(b</p>"), Ok(()))
-  @test.assert_eq(check_roundtrip("<!-- hello (b world) -->"), Ok(()))
-  @test.assert_eq(check_roundtrip("<div title=\"(x)\"></div>"), Ok(()))
-  @test.assert_eq(
-    check_roundtrip("<p class=\"a\">x <span>y</span></p>"),
-    Ok(()),
-  )
-  let pre_input =
-    #|<pre>line1
-    #|line2
-    #|</pre>
-  @test.assert_eq(check_roundtrip(pre_input), Ok(()))
-}
-
-///|
-fn check_roundtrip(input : String) -> Result[Unit, String] {
-  match html_to_sexp(input) {
-    Err(e) => Err("html_to_sexp failed: " + e)
-    Ok(sexp) =>
-      match sexp_to_html(sexp) {
-        Err(e) => Err("sexp_to_html failed: " + e + " from " + sexp)
-        Ok(html) =>
-          if html == input {
-            Ok(())
-          } else {
-            Err("roundtrip mismatch: \{html} != \{input}")
-          }
-      }
+      @test.assert_eq(
+        e, "parse error at line 1, column 19: unexpected ')'",
+      )
   }
 }
 
@@ -522,8 +377,7 @@ test "nesting depth is capped at 128" {
   @test.assert_eq(sexp_to_html(nested_element_source(128)) is Ok(_), true)
   match sexp_to_html(nested_element_source(129)) {
     Ok(_) => fail("expected an error")
-    Err(e) =>
-      @test.assert_eq(e.contains("nesting depth exceeds 128"), true)
+    Err(e) => @test.assert_eq(e.contains("nesting depth exceeds 128"), true)
   }
 }
 

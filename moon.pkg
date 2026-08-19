@@ -1,7 +1,3 @@
 import {
-  "Milky2018/html/src" @html5,
-}
-
-import {
   "moonbitlang/core/test",
 } for "test"

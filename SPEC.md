@@ -227,7 +227,7 @@ Inside `(# ...)`, the same parenthesis escaping rules apply.
 
 A literal backslash is ordinary text except directly before the closing `)`
 of a term, where `\)` is always an escape. A text value ending in a backslash
-is therefore not representable, and `html_to_sexp` rejects it.
+is therefore not representable in this notation.
 
 ### 4.3 Attributes
 
@@ -248,8 +248,7 @@ Example:
 Attribute values must be plain text only.
 
 - leading whitespace in an attribute value is not representable in this notation
-- therefore `html_to_sexp` must reject HTML attributes whose value begins with whitespace
-- this notation does not distinguish an explicit empty-string attribute value from a minimized / valueless HTML attribute; both canonicalize to `(:name)` when converting from HTML
+- this notation does not distinguish an explicit empty-string attribute value from a minimized / valueless HTML attribute; both are written `(:name)`
 
 Valid:
 
@@ -292,8 +291,6 @@ Example:
 ### 4.4 Comments
 
 Comment contents are not recursively interpreted as HTML structure.
-
-- when converting HTML back to this notation, comment text is canonicalized by trimming leading and trailing whitespace
 
 Example:
 
@@ -383,18 +380,6 @@ A document is an HTML fragment, not necessarily a single rooted tree. Multiple
 top-level nodes are allowed.
 
 Lists whose first item is missing or is itself another list are invalid.
-
-### 5.5 Converting HTML back (`html_to_sexp`)
-
-`html_to_sexp` emits S-expressions that round-trip to the same HTML:
-
-- a text node with no leading whitespace and only single internal space
-  characters is emitted as a bare term; any other text is emitted as `(# ...)`
-- a text, attribute-value, or comment value ending in a backslash is rejected as
-  unrepresentable
-- attribute values beginning with whitespace are rejected as unrepresentable
-- child terms are concatenated directly (a bare text term is only emitted when it
-  is safe next to its neighbors)
 
 ## 6. Examples
 

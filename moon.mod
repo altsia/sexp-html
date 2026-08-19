@@ -2,10 +2,6 @@ name = "kokic/sexp-html"
 
 version = "0.5.0"
 
-import {
-  "Milky2018/html@0.1.2",
-}
-
 readme = "README.md"
 
 repository = "https://github.com/altsia/sexp-html"
